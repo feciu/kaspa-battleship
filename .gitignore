@@ -1,0 +1,11 @@
+# NIGDY nie publikować: klucze operatora, stan gry (zawiera klucze i plansze bota)
+*operator*.json
+tables.json
+tables-*.json
+nicks.json
+.job-*.json
+node_modules/
+target/
+build/
+sdk/
+*.log

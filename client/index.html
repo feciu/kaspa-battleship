@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Battleship on-chain — KasPlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Roboto+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --kas:#49ceb5; --kas-dim:#2b7d6d; --kas-glow:rgba(73,206,181,.35);
+    --bg:#0a0a0f; --panel:rgba(15,20,26,.72); --line:rgba(73,206,181,.16);
+    /* --sea musi być WYRAŹNIE jaśniejsze od tła strony, inaczej plansza znika */
+    --gold:#ffd700; --txt:#dfe6ee; --dim:#93a0ad; --sea:#33505f; --hit:#e0474f; --miss:#3d4d61;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--txt); font-family:'Inter',system-ui,sans-serif; }
+  body::before { content:''; position:fixed; inset:0; z-index:-2; background:
+      radial-gradient(1100px 620px at 50% -10%, rgba(73,206,181,.10), transparent 70%), var(--bg); }
+  body::after { content:''; position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:.20;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:46px 46px; mask-image:radial-gradient(circle at 50% 30%,#000 35%,transparent 78%); }
+  .wrap { max-width:1120px; margin:0 auto; padding:26px 16px 70px; }
+
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .logo { font-family:'Press Start 2P',monospace; font-size:17px; color:var(--kas); letter-spacing:1px;
+          text-shadow:0 0 18px var(--kas-glow); text-decoration:none; cursor:pointer; transition:text-shadow .2s; }
+  .logo:hover { text-shadow:0 0 26px var(--kas); }
+  .chip { font-family:'Roboto Mono',monospace; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+          color:var(--gold); border:1px solid rgba(255,215,0,.35); border-radius:99px; padding:3px 10px; }
+  .lede { color:var(--dim); font-size:14px; max-width:70ch; margin:12px 0 22px; line-height:1.65; }
+  .lede b { color:var(--txt); font-weight:600; }
+
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px 20px;
+           margin-bottom:16px; backdrop-filter:blur(3px); transition:border-color .2s; }
+  .panel:hover { border-color:rgba(73,206,181,.3); }
+  .ptitle { font-family:'Press Start 2P',monospace; font-size:11px; color:var(--kas); letter-spacing:.5px;
+            margin:0 0 14px; display:flex; align-items:center; gap:9px; }
+  .ptitle::before { content:''; width:9px; height:9px; background:var(--kas); border-radius:2px;
+                    box-shadow:0 0 10px var(--kas-glow); }
+
+  button { font-family:'Roboto Mono',monospace; font-weight:700; font-size:13px; letter-spacing:.04em;
+           background:linear-gradient(180deg,var(--kas),#37a693); color:#04120e; border:0; border-radius:9px;
+           padding:11px 18px; cursor:pointer; text-transform:uppercase; transition:transform .12s, box-shadow .2s; }
+  button:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 6px 18px rgba(73,206,181,.25); }
+  button.ghost { background:transparent; color:var(--kas); border:1px solid var(--kas-dim); }
+  button:disabled { opacity:.35; cursor:not-allowed; transform:none; box-shadow:none; }
+
+  .row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+  .between { justify-content:space-between; }
+
+  /* pasek statusu gry — po ludzku, ponad wszystkim */
+  .banner { display:flex; align-items:center; gap:14px; padding:16px 20px; border-radius:14px;
+            border:1px solid var(--line); background:var(--panel); margin-bottom:16px; }
+  .banner .big { font-family:'Press Start 2P',monospace; font-size:13px; line-height:1.5; }
+  .banner.you { border-color:var(--gold); box-shadow:0 0 24px rgba(255,215,0,.14); }
+  .banner.reveal { animation:flash 1.1s ease-out; }
+  @keyframes flash { 0%{background:rgba(255,215,0,.28); transform:scale(1.015)} 100%{background:var(--panel); transform:none} }
+  .banner.you .big { color:var(--gold); }
+  .banner.wait { opacity:.85; }
+  .banner .spin { width:16px; height:16px; border:2px solid var(--kas-dim); border-top-color:var(--kas);
+                  border-radius:50%; animation:spin 1s linear infinite; flex:0 0 auto; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .banner .score { font-family:'Press Start 2P',monospace; font-size:15px; color:var(--kas); margin-left:auto; }
+
+  /* plansze */
+  .boards { display:flex; gap:22px; flex-wrap:nowrap; justify-content:center; }
+  .bx h3 { font-family:'Roboto Mono',monospace; font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+           color:var(--dim); margin:0 0 10px; text-align:center; }
+  .bx.active h3 { color:var(--gold); }
+  /* czy rywal siedzi przy stole — bez niego nikt nie potwierdzi Twojego strzału */
+  .pres { display:inline-flex; align-items:center; gap:5px; margin-left:7px; padding:2px 7px; border-radius:99px;
+          font-size:9.5px; letter-spacing:.06em; border:1px solid; }
+  .pres::before { content:''; width:6px; height:6px; border-radius:50%; }
+  .pres.on { color:#6fd8c3; border-color:rgba(111,216,195,.45); }
+  .pres.on::before { background:#6fd8c3; box-shadow:0 0 7px #6fd8c3; animation:pulse 2s infinite; }
+  .pres.off { color:#c8a45a; border-color:rgba(200,164,90,.45); }
+  .pres.off::before { background:#c8a45a; }
+  .board { display:grid; grid-template-columns:repeat(6,1fr); gap:3px; width:min(300px,44vw); }
+  @media (max-width:520px){ .board { width:min(300px,45vw); gap:2px; } .boards { gap:8px; } .bx h3 { font-size:9.5px; } }
+  .board.aim { outline:2px solid rgba(255,215,0,.5); outline-offset:5px; border-radius:6px; }
+  .lab { display:flex; align-items:center; justify-content:center; font-family:'Roboto Mono',monospace;
+         font-size:11px; color:#aab6c3; aspect-ratio:1; }
+  .cell { aspect-ratio:1; background:var(--sea); border:1px solid rgba(140,205,225,.42); border-radius:3px;
+          position:relative; transition:background .15s, transform .1s;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.05); }
+  .cell.click { cursor:crosshair; }
+  .cell.click:hover { background:#16303a; transform:scale(1.08); border-color:var(--kas); }
+  .cell.place { cursor:pointer; }
+  .cell.place:hover { background:#16303a; }
+  .cell.preview { background:rgba(73,206,181,.28); border-color:var(--kas); }
+  .cell.bad { background:rgba(224,71,79,.3); border-color:var(--hit); }
+  .cell.ship { background:linear-gradient(160deg,#57b9a6,#32897a);
+               border-color:#6fd8c3; box-shadow:0 0 10px rgba(73,206,181,.28); }
+  .cell.hit { background:radial-gradient(circle at 50% 45%,#ff8a8a,var(--hit)); border-color:#ff9b9b;
+              box-shadow:0 0 12px rgba(224,71,79,.5); }
+  .cell.hit::after { content:'✕'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                     color:#fff; font-size:15px; font-weight:700; }
+  .cell.miss { background:var(--miss); }
+  .cell.miss::after { content:''; position:absolute; inset:36%; border-radius:50%; background:#8fa3ba; opacity:.75; }
+  /* wynik MOJEGO strzału odsłonięty przed ruchem rywala */
+  .cell.justrevealed { animation:pop .55s ease-out; z-index:1; }
+  @keyframes pop { 0%{transform:scale(1)} 45%{transform:scale(1.28)} 100%{transform:scale(1)} }
+  .cell.wait { background:#1a2430; border-color:var(--gold); box-shadow:0 0 10px rgba(255,215,0,.35); }
+  .cell.wait::after { content:'?'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                      color:var(--gold); font-family:'Press Start 2P',monospace; font-size:11px; animation:pulse 1.4s infinite; }
+  .banner.over { border-color:var(--gold); background:rgba(255,215,0,.10); }
+  .banner.over .big { color:var(--gold); }
+  .cell.sending { background:repeating-linear-gradient(45deg,#2a3646,#2a3646 4px,#1a2430 4px,#1a2430 8px);
+                  border-color:var(--gold); animation:pulse 1s infinite; }
+  .cell.lastshot { animation:ping .6s ease-out; }
+  /* pasek statusu jako bohater ekranu */
+  .banner.big-hero { padding:22px 22px; }
+  .banner.big-hero .big { font-size:15px; }
+  .metaline { font-family:'Roboto Mono',monospace; font-size:10.5px; color:#5a6572; text-align:center; margin:2px 0 14px; }
+  .metaline a { color:var(--kas-dim); }
+  @keyframes ping { 0%{box-shadow:0 0 0 0 var(--gold)} 100%{box-shadow:0 0 0 10px transparent} }
+
+  .fleet { display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 4px; }
+  .ship-tok { display:flex; gap:2px; padding:5px 8px; border-radius:7px; border:1px solid var(--line);
+              font-family:'Roboto Mono',monospace; font-size:11px; align-items:center; }
+  .ship-tok.done { opacity:.4; }
+  .ship-tok.now { border-color:var(--gold); background:rgba(255,215,0,.08); }
+  .ship-tok i { width:9px; height:9px; background:var(--kas-dim); border-radius:2px; display:inline-block; }
+
+  /* szeroka tabela przewija się SAMA — strona nigdy nie jedzie w bok */
+  .tblwrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  @media (max-width:520px) {
+    table.tbl th:nth-child(4), table.tbl td:nth-child(4) { display:none; }  /* „ruchów" — na telefonie zbędne */
+    table.tbl th, table.tbl td { padding:8px 5px; }
+    table.tbl .mono { font-size:11px; }
+    .tblwrap button { padding:9px 11px; font-size:11px; }
+  }
+  table.tbl { width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.tbl th { text-align:left; font-family:'Roboto Mono',monospace; font-size:10px; letter-spacing:.1em;
+                 text-transform:uppercase; color:var(--dim); padding:8px; border-bottom:1px solid var(--line); }
+  table.tbl td { padding:10px 8px; border-bottom:1px solid rgba(73,206,181,.07); }
+  .mono { font-family:'Roboto Mono',monospace; font-size:12px; color:var(--dim); }
+
+  .console { background:#05080b; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .console-bar { display:flex; align-items:center; gap:8px; padding:9px 14px; background:rgba(73,206,181,.07);
+                 border-bottom:1px solid var(--line); font-family:'Roboto Mono',monospace; font-size:10.5px;
+                 letter-spacing:.1em; text-transform:uppercase; color:var(--dim); cursor:pointer; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--kas); box-shadow:0 0 8px var(--kas-glow);
+         animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  #term { height:190px; overflow-y:auto; padding:12px 14px; font-family:'Roboto Mono',monospace;
+          font-size:11.5px; line-height:1.85; }
+  #term.collapsed { height:0; padding:0; }
+  #term div { animation:slidein .18s ease-out; }
+  @keyframes slidein { from{opacity:0;transform:translateX(-6px)} to{opacity:1;transform:none} }
+  #term .ts { color:#46525f; }
+  #term .t { color:var(--dim); } #term .ok { color:var(--kas); } #term .warn { color:var(--gold); } #term .err { color:#ff7b7b; }
+  #term a { color:var(--kas); text-decoration:none; border-bottom:1px dotted var(--kas-dim); }
+  .hint { color:var(--dim); font-size:12.5px; }
+  #nick { font-family:'Roboto Mono',monospace; font-size:11px; letter-spacing:.04em; width:120px;
+          background:#16232f; color:var(--txt); border:1px solid var(--kas-dim); border-radius:99px; padding:4px 11px; }
+  #nick::placeholder { color:#63707d; }
+  #nick:focus { outline:none; border-color:var(--kas); box-shadow:0 0 10px var(--kas-glow); }
+  /* ekran po partii — jasno mówi, co się właśnie stało i co można zrobić dalej */
+  .endcard { border-color:rgba(73,206,181,.34); }
+  .endline { font-family:'Press Start 2P',monospace; font-size:12px; line-height:1.8; color:var(--txt); margin-bottom:10px; }
+  .endline b { color:var(--kas); }
+  /* pełny zapis partii — żeby każdy mógł sprawdzić ją sam na eksploratorze */
+  .txlist { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+  .txlist summary { color:var(--kas); font-family:'Roboto Mono',monospace; font-size:11.5px; cursor:pointer; }
+  .txlist ol { max-height:260px; overflow-y:auto; margin:10px 0 0; padding-left:26px;
+               font-family:'Roboto Mono',monospace; font-size:11.5px; line-height:2; color:var(--dim); }
+  .txlist li span { color:var(--txt); }
+  .btnlink { display:inline-flex; align-items:center; font-family:'Roboto Mono',monospace; font-weight:700;
+             font-size:13px; letter-spacing:.04em; text-transform:uppercase; text-decoration:none;
+             color:var(--kas); border:1px solid var(--kas-dim); border-radius:9px; padding:11px 18px; }
+  select { font-family:'Roboto Mono',monospace; font-size:12px; background:#16232f; color:var(--txt);
+           border:1px solid var(--kas-dim); border-radius:8px; padding:8px 9px; cursor:pointer; }
+  /* uczciwa nota o granicach demo — dostępna, ale nie krzycząca */
+  .honest { margin:-10px 0 22px; max-width:70ch; border-left:2px solid var(--kas-dim); padding-left:14px; }
+  .honest summary { color:var(--kas); font-family:'Roboto Mono',monospace; font-size:11.5px; letter-spacing:.04em;
+                    cursor:pointer; padding:4px 0; }
+  .honest summary b { color:var(--gold); }
+  .honest p { color:var(--dim); font-size:13px; line-height:1.7; margin:8px 0 0; }
+  .honest p b { color:var(--txt); font-weight:600; }
+  @media (prefers-reduced-motion:reduce) { *,#term div { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="logo" id="home" href="/battleship/" title="Back to the tables">BATTLESHIP</a>
+    <span class="chip">on-chain · testnet</span>
+    <span class="chip" style="color:var(--dim);border-color:var(--line)" title="page version">v 16:55</span>
+    <span class="chip" style="color:var(--kas);border-color:var(--kas-dim)" id="whoami" title="Your identity in this browser — the key never leaves it">…</span>
+    <input id="nick" maxlength="16" placeholder="your nickname" title="Shown to your opponent. Cosmetic only — moves are signed with your key, so nobody can play as you.">
+    <button class="ghost" id="reset" style="padding:5px 10px;font-size:10px;color:var(--dim);border-color:var(--line);" title="Wipe keys and saved boards from this browser and start over">Reset</button>
+  </header>
+  <p class="lede">A two-player game where a hit is called by <b>the Kaspa network, not by our server</b>.
+  Your board is frozen cryptographically and never leaves this browser — every "hit or miss" has to be proven
+  with a Merkle path, which the network recomputes and rejects if it doesn't add up. Lying about a hit is
+  impossible. Every move is a real testnet transaction signed with your key; you need no wallet, we cover the fees.</p>
+  <details class="honest">
+    <summary>Why you wait for your opponent to confirm</summary>
+    <p>Because <b>only they know what your shot hit</b>. Their board never leaves their browser — neither our
+    server nor the chain has a copy. The fact "you hit C3" exists nowhere until they produce it and prove it.
+    If anyone could tell you sooner, that someone would know their layout — and the game would be pointless.</p>
+    <p><b>It works exactly like a real table.</b> You call "C3", then wait for your opponent to say "miss".
+    If they stepped out for a minute, you wait until they're back. The one difference is that here they
+    <b>cannot lie</b>: every hit or miss must be proven, and the Kaspa network checks the proof.</p>
+    <p>That is why their board shows whether they are <b>at the table</b> (answers instantly) or <b>away</b>
+    (answers when back). And if they never come back, the game ends in your favour once the clock runs out —
+    automatically, even with your browser closed.</p>
+  </details>
+  <details class="honest">
+    <summary>What the network enforces — and what it does not, yet</summary>
+    <p>Five rules are enforced by consensus: breaking any of them means the transaction is rejected by nodes,
+    not by us. Truthful hit-or-miss answers (Merkle proof), turn order, no <b>shooting the same square twice</b>,
+    a <b>full fleet</b> on the opponent's board (freeze an empty board and after the eighteenth miss you can no
+    longer move, so you lose), and a monotonic game clock.</p>
+    <p>Two things stay off-chain. Your browser signs a transaction <b>built by our server</b> without inspecting
+    its contents — a malicious server could swap the move. And the network does not verify the <b>shape</b> of
+    the fleet: seven separate single-square ships pass just like a legal layout. That is why this runs on testnet
+    only, with nothing at stake.</p>
+  </details>
+
+  <div id="view"></div>
+
+  <div class="console">
+    <div class="console-bar" id="cbar"><span class="dot"></span> Network console · testnet-10 · <span style="color:var(--kas)">click to collapse</span></div>
+    <div id="term"></div>
+  </div>
+</div>
+
+<script type="module">
+import { blake2b256, hex, unhex, le8 } from "./blake2b.js?v=16:55";
+import * as kaspa from "./sdk/kaspa/kaspa.js";
+await kaspa.default("./sdk/kaspa/kaspa_bg.wasm");
+
+const BASE = location.pathname.replace(/\/$/, "");
+const EXPLORER = "https://tn10.kaspa.stream/transactions/";
+const $ = (s) => document.querySelector(s);
+const term = $("#term");
+$("#cbar").onclick = () => term.classList.toggle("collapsed");
+{
+  const home = document.querySelector("#home");
+  home.setAttribute("href", (location.pathname.replace(/\/$/, "") || "") + "/");
+  home.onclick = (e) => { e.preventDefault(); showTables().catch(() => {}); };
+}
+function log(msg, cls = "t") {
+  const d = document.createElement("div"); d.className = cls;
+  d.innerHTML = `<span class="ts">${new Date().toLocaleTimeString()}</span> ${msg}`;
+  term.prepend(d);   // najnowszy wpis na górze
+  while (term.children.length > 160) term.removeChild(term.lastChild);
+}
+// Nick jest czysto kosmetyczny i wpisuje go dowolny gracz, a konsola renderuje
+// przez innerHTML — więc ZAWSZE przepuszczamy go przez esc().
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let myNick = localStorage.getItem("bs_nick") || "";
+const txLink = (id) => `<a href="${EXPLORER}${id}" target="_blank" rel="noopener">${id.slice(0, 18)}…</a>`;
+
+// ── tożsamość: jeden klucz na przeglądarkę ────────────────────────────────
+let priv, xonly, myId;
+{
+  let keyHex = localStorage.getItem("bs_key");
+  if (!keyHex) { keyHex = hex(crypto.getRandomValues(new Uint8Array(32))); localStorage.setItem("bs_key", keyHex);
+    log("player key generated — it stays in this browser and holds no funds", "warn"); }
+  priv = new kaspa.PrivateKey(keyHex);
+  xonly = unhex(priv.toPublicKey().toXOnlyPublicKey().toString());
+  myId = hex(blake2b256(xonly));
+  $("#whoami").textContent = myId.slice(0, 8);
+}
+{
+  const inp = $("#nick");
+  inp.value = myNick;
+  inp.onchange = inp.onblur = () => {
+    const v = inp.value.replace(/[<>&"'`]/g, "").trim().slice(0, 16);
+    inp.value = v; myNick = v; localStorage.setItem("bs_nick", v);
+    if (v) log(`nickname set to <b>${esc(v)}</b> — opponents will see it instead of your key digest`, "ok");
+    if (current) (current === "place" ? showTables() : showGame(current)).catch?.(() => {});
+  };
+}
+$("#reset").onclick = () => {
+  if (!confirm("Wipe player keys and all saved boards from this browser and start over?")) return;
+  Object.keys(localStorage).filter((k) => k.startsWith("bs_")).forEach((k) => localStorage.removeItem(k));
+  location.reload();
+};
+
+// ── flota, drzewo Merkle'a ────────────────────────────────────────────────
+const N = 5, CELLS = 25;                    // plansza 5x5 — mieści się na telefonie, partia ~minutę
+const FLEET = [{ n: "Cruiser", len: 3 }, { n: "Destroyer", len: 2 },
+  { n: "Cutter", len: 1 }, { n: "Cutter", len: 1 }];   // 7 pól
+const around = (i) => { const r = (i / N) | 0, c = i % N, out = [];
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    const nr = r + dr, nc = c + dc; if (nr >= 0 && nr < N && nc >= 0 && nc < N) out.push(nr * N + nc); } return out; };
+function shipCells(head, len, horiz) {
+  const r = (head / N) | 0, c = head % N, out = [];
+  for (let k = 0; k < len; k++) { const rr = horiz ? r : r + k, cc = horiz ? c + k : c;
+    if (rr >= N || cc >= N) return null; out.push(rr * N + cc); } return out;
+}
+function canPlace(cells, idx) { return idx.every((i) => cells[i] === 0 && around(i).every((a) => !idx.includes(a) ? cells[a] === 0 : true)); }
+// losujemy do skutku: niepełna flota = rywal nie mógłby wygrać
+function randomBoard() {
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const b = tryRandomBoard();
+    if (b.reduce((a, x) => a + x, 0) === 7) return b;
+  }
+  return tryRandomBoard();
+}
+function tryRandomBoard() {
+  const c = new Array(CELLS).fill(0);
+  for (const s of FLEET) { for (let t = 0; t < 800; t++) {
+    const horiz = Math.random() < 0.5, head = (Math.random() * CELLS) | 0, idx = shipCells(head, s.len, horiz);
+    if (!idx || !canPlace(c, idx)) continue; idx.forEach((i) => (c[i] = 1)); break; } }
+  return c;
+}
+function buildTree(cells, master) {
+  const salts = [], leaves = [];
+  for (let i = 0; i < 128; i++) { const s = blake2b256(unhex(master), le8(i)); salts.push(s);
+    leaves.push(blake2b256(le8(i), le8(i < CELLS ? cells[i] : 0), s)); }
+  const nodes = [leaves];
+  for (let l = 0; l < 7; l++) { const p = nodes[l], n = [];
+    for (let j = 0; j < p.length / 2; j++) n.push(blake2b256(p[2 * j], p[2 * j + 1])); nodes.push(n); }
+  return { salts, nodes, root: hex(nodes[7][0]) };
+}
+const proofFor = (t, i) => [...Array(7)].map((_, l) => hex(t.nodes[l][(i >> l) ^ 1]));
+// plansza zapisana pod tożsamością gracza — dwaj gracze w jednym oknie mają osobne
+const bkey = (id) => `bs_board_${id}_${myId.slice(0, 8)}`;
+const saveBoard = (id, cells, master) => localStorage.setItem(bkey(id), JSON.stringify({ cells, master }));
+const loadBoard = (id) => {
+  let r = localStorage.getItem(bkey(id));
+  if (!r) { const legacy = localStorage.getItem(`bs_board_${id}`); if (legacy) { localStorage.setItem(bkey(id), legacy); r = legacy; } }
+  return r ? JSON.parse(r) : null;
+};
+const coord = (i) => "ABCDE"[i % N] + (((i / N) | 0) + 1);
+const nickOrId = (nick, id) => esc(nick || (id ? id.slice(0, 8) : "—"));
+const oppName = (table, iAmA) => table.vsBot ? "BOT"
+  : nickOrId(iAmA ? table.nick?.b : table.nick?.a, iAmA ? table.state.b_id : table.state.a_id);
+// ms -> klucz z listy okien czasowych (do „zagraj jeszcze raz" na tych samych zasadach)
+const ago = (t) => { const m = Math.floor((Date.now() - t) / 60000);
+  return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.floor(m / 60) + " h ago" : Math.floor(m / 1440) + " d ago"; };
+const winKey = (ms) => ({ 300000: "5m", 600000: "10m", 900000: "15m", 3600000: "1h", 54000000: "15h" })[ms] ?? "24h";
+
+// ── API + live ────────────────────────────────────────────────────────────
+async function api(path, body) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 50000);   // nic nie wisi w nieskończoność
+  try {
+    const r = await fetch(BASE + path, { signal: ctl.signal, ...(body
+      ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || "server error"); return j;
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("server did not respond within 50s — please try again");
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+async function signedMove(id, mode, params, nick) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    log(attempt === 1 ? "building covenant transaction…" : "fee collision — rebuilding the move…", attempt === 1 ? "t" : "warn");
+    const prep = await api("/api/move/prepare", { id, mode, params, nick: nick ?? myNick, playerId: myId });
+    log(`signing digest <b>${prep.sighash.slice(0, 20)}…</b> with the player key`);
+    const sig = kaspa.signScriptHash(prep.sighash, priv).slice(2);
+    log("broadcasting to the Kaspa network…");
+    try {
+      const res = await api("/api/move/commit", { nonce: prep.nonce, sig });
+      log(`✓ accepted by the network: ${txLink(res.txid)}`, "ok");
+      return res;
+    } catch (e) {
+      if (e.message === "STALE" && attempt < 4) { await new Promise((r) => setTimeout(r, 300)); continue; }
+      throw e;
+    }
+  }
+}
+// jeden strumień zdarzeń na całą stronę; widoki się na niego podpinają
+let onEvent = null;
+(function connectSSE() {
+  const es = new EventSource(BASE + "/api/events?me=" + myId + "&nick=" + encodeURIComponent(myNick));
+  es.onmessage = (e) => { try { const d = JSON.parse(e.data); if (onEvent) onEvent(d.id); } catch {} };
+  es.onerror = () => { /* EventSource sam wznawia połączenie */ };
+})();
+
+// ── widoki ────────────────────────────────────────────────────────────────
+let current = null, refreshTimer = null;
+
+const cellEl = (cls, onclick, over) => {
+  const d = document.createElement("div");
+  d.className = "cell " + cls + (onclick ? (cls.includes("place") ? "" : " click") : "");
+  if (onclick) d.onclick = onclick;
+  if (over) { d.onmouseenter = over.enter; d.onmouseleave = over.leave; }
+  return d;
+};
+function grid(host, paint, onclick, over) {
+  host.innerHTML = "";
+  host.appendChild(Object.assign(document.createElement("div"), { className: "lab" }));
+  for (let c = 0; c < N; c++) host.appendChild(Object.assign(document.createElement("div"), { className: "lab", textContent: "ABCDE"[c] }));
+  for (let r = 0; r < N; r++) {
+    host.appendChild(Object.assign(document.createElement("div"), { className: "lab", textContent: r + 1 }));
+    for (let c = 0; c < N; c++) { const i = r * N + c;
+      host.appendChild(cellEl(paint(i), onclick ? () => onclick(i) : null, over ? { enter: () => over(i, true), leave: () => over(i, false) } : null)); }
+  }
+}
+
+async function showTables() {
+  current = null;
+  if (location.hash) history.replaceState(null, "", location.pathname); onEvent = () => showTables().catch(() => {});
+  clearInterval(refreshTimer);
+  const { tables } = await api("/api/tables");
+  const open = tables.filter((t) => t.phase === 0), live = tables.filter((t) => t.phase === 1),
+        done = tables.filter((t) => t.phase === 2).slice(-6).reverse();
+  $("#view").innerHTML = `
+    <div class="panel">
+      <div class="row between"><div class="ptitle" style="margin:0;">Tables</div>
+        <div class="row">
+          <label class="hint" style="display:flex;align-items:center;gap:7px;">Time per move
+            <select id="win" title="Fail to move within this time and you lose. Short = fast game, long = play it like correspondence chess.">
+              <option value="5m">5 min</option><option value="10m">10 min</option>
+              <option value="15m">15 min</option><option value="1h">1 hour</option>
+              <option value="15h">15 hours</option><option value="24h" selected>24 hours</option>
+            </select></label>
+          <button id="bot">▶ Play the bot</button><button class="ghost" id="new">Open a table</button></div></div>
+      <p class="hint" style="margin:12px 0 0;">Open a table, place your fleet, and wait for someone to sit down opposite.
+      <b style="color:var(--txt)">You need not both be online</b>: the game lives on-chain, and whoever walks away loses once the clock runs out.</p>
+      <p class="hint" style="margin:8px 0 0;">💡 <b style="color:var(--txt)">Play the bot</b> — it answers on its own, nothing to switch. Want a human? Open a table and send them the link.</p>
+    </div>
+    ${sect("Open seats", open, "join")}
+    ${sect("Games in progress", live, "open")}
+    ${done.length ? sect("Finished", done, "open") : ""}`;
+  const pickedWindow = () => $("#win")?.value ?? "24h";
+  $("#new").onclick = () => showPlacement(null, false, pickedWindow());
+  $("#bot").onclick = () => showPlacement(null, true, pickedWindow());
+  document.querySelectorAll("[data-join]").forEach((b) => (b.onclick = () => showPlacement(b.dataset.join)));
+  document.querySelectorAll("[data-open]").forEach((b) => (b.onclick = () => showGame(b.dataset.open)));
+}
+function sect(title, rows, kind) {
+  const body = rows.length ? `<table class="tbl"><tr><th>table</th><th>players</th><th>score</th><th>per move</th><th></th></tr>
+    ${rows.map((t) => `<tr><td class="mono">${t.id}</td>
+      <td class="mono">${nickOrId(t.nickA, t.playerA)}${t.vsBot ? " ⚔ 🤖 BOT" : t.playerB ? " ⚔ " + nickOrId(t.nickB, t.playerB)
+        : (t.creatorOnline ? ` <span class="pres on">host here</span>` : ` <span class="pres off">host away</span>`)
+          + ` <span style="color:#5a6572">· opened ${ago(t.created)}</span>`}</td>
+      <td>${t.phase === 2 ? `<b style="color:var(--gold)">${t.winner === 0 ? "A" : "B"} won</b>` : `<span style="font-family:'Press Start 2P';font-size:13px;color:var(--kas)">${t.hitsA} : ${t.hitsB}</span>`}</td>
+      <td class="mono">${t.window ? (t.window < 3600000 ? t.window / 60000 + " min" : t.window / 3600000 + " h") : "—"}</td>
+      <td style="text-align:right">${kind === "join"
+          ? (t.playerA.slice(0,8) === myId.slice(0,8)
+              ? `<button data-open="${t.id}">▶ Your table — open</button>`
+              : `<button data-join="${t.id}" class="${t.creatorOnline ? "" : "ghost"}" title="${t.creatorOnline ? "Host has the game open — expect a quick game" : "Host is not at the table. You can still sit down: if they never come back, you win once the clock runs out."}">Sit down</button>`)
+          : (t.playerA.slice(0,8) === myId.slice(0,8) || t.playerB?.slice(0,8) === myId.slice(0,8)
+              ? `<button data-open="${t.id}">${t.phase === 2 ? "See result" : "▶ Resume game"}</button>`
+              : `<button class="ghost" data-open="${t.id}">Watch</button>`)}</td></tr>`).join("")}
+    </table>` : `<p class="hint" style="margin:0;">— none —</p>`;
+  return `<div class="panel"><div class="ptitle">${title}</div><div class="tblwrap">${body}</div></div>`;
+}
+
+// ── rozstawianie: statek po statku, z podglądem i cofaniem ────────────────
+function showPlacement(joinId, vsBot = false, win = "24h") {
+  current = "place"; onEvent = null; clearInterval(refreshTimer);
+  let cells = new Array(CELLS).fill(0);
+  let horiz = true, placed = 0;
+  const history = [];   // stos pól kolejnych statków (do cofania)
+
+  const submit = async () => {
+    const g = $("#go"); if (g) { g.disabled = true; g.textContent = "⏳ creating table on-chain…"; }
+    const master = hex(crypto.getRandomValues(new Uint8Array(32)));
+    const tree = buildTree(cells, master);
+    log(`freezing board — Merkle root <b>${tree.root.slice(0, 20)}…</b>`, "warn");
+    try {
+      if (joinId) { saveBoard(joinId, cells, master);
+        await signedMove(joinId, "join", { root: tree.root, pubkey: hex(xonly), playerId: myId }, myNick); showGame(joinId);
+      } else { const r = await api("/api/table/create", { playerId: myId, root: tree.root, name: vsBot ? "vs BOT" : "Table", vsBot, window: win, nick: myNick });
+        saveBoard(r.id, cells, master); log(`✓ table created on-chain: ${txLink(r.txid)}`, "ok"); showGame(r.id); }
+    } catch (e) {
+      log("✗ " + e.message, "err");
+      alert("Could not create the table:\n\n" + e.message);
+      if (g) { g.disabled = false; g.textContent = joinId ? "Sit down and play" : vsBot ? "Play the bot" : "Open table"; }
+    }
+  };
+
+  const render = () => {
+    const cur = FLEET[placed];
+    $("#view").innerHTML = `
+      <div class="panel">
+        <div class="ptitle">${joinId ? "Sitting down at table " + joinId : vsBot ? "Game vs bot" : "New table"} — place your fleet</div>
+        <p class="hint" style="margin:0 0 12px;">${cur
+          ? `Place your <b style="color:var(--gold)">${cur.n} — ${cur.len} ${cur.len === 1 ? "square" : "squares"}</b>.
+             Hover the board and click. Press <b style="color:var(--txt)">R</b> to rotate.`
+          : `<b style="color:var(--kas)">Fleet ready!</b> Hit the button below.`}</p>
+        <div class="fleet">${FLEET.map((s, k) => `<span class="ship-tok ${k < placed ? "done" : k === placed ? "now" : ""}">${"<i></i>".repeat(s.len)} ${s.n}</span>`).join("")}</div>
+        <div class="board" id="pl" style="margin:12px auto 0;"></div>
+        <div class="row" style="margin-top:18px;justify-content:center;">
+          ${cur ? `<button id="rot" class="ghost">Rotate: ${horiz ? "across ▬" : "down ▮"}</button>` : ""}
+          <button id="undo" class="ghost" ${placed === 0 ? "disabled" : ""}>Undo</button>
+          <button id="rnd" class="ghost">Randomise</button>
+          <button id="go" ${cur ? "disabled" : ""}>${joinId ? "Sit down and play" : vsBot ? "Play the bot" : "Open table"}</button>
+          <button id="back" class="ghost">Back</button>
+        </div>
+      </div>`;
+    grid($("#pl"),
+      (i) => cells[i] ? "ship" : (cur ? "place" : ""),
+      cur ? (i) => { const idx = shipCells(i, cur.len, horiz);
+        if (idx && canPlace(cells, idx)) { history.push(idx); idx.forEach((c) => (cells[c] = 1)); placed++; render(); } } : null,
+      cur ? (i, on) => {
+        const pv = on ? shipCells(i, cur.len, horiz) : null; let gi = 0;
+        [...$("#pl").children].forEach((el) => { if (!el.classList.contains("cell")) return;
+          const idx = gi++; if (cells[idx]) return; el.classList.remove("preview", "bad");
+          if (pv && pv.includes(idx)) el.classList.add(canPlace(cells, pv) ? "preview" : "bad"); });
+      } : null);
+    if ($("#rot")) $("#rot").onclick = () => { horiz = !horiz; render(); };
+    $("#undo").onclick = () => { const last = history.pop(); if (!last) return; last.forEach((c) => (cells[c] = 0)); placed--; render(); };
+    $("#rnd").onclick = () => { cells = randomBoard(); placed = FLEET.length; history.length = 0; render(); };
+    $("#go").onclick = submit;
+    $("#back").onclick = () => showTables();
+  };
+
+  window.addEventListener("keydown", function h(e) {
+    if (current !== "place") { window.removeEventListener("keydown", h); return; }
+    if (e.key === "r" || e.key === "R") { horiz = !horiz; render(); }
+  });
+  render();
+}
+
+
+async function showGame(id) {
+  current = id;
+  history.replaceState(null, "", "#" + id);   // link prosto do partii
+ let busy = false, busySince = 0, sending = -1, lastMoves = -1, lastLogLen = 0;
+  const shotsMine = new Set();   // moje dotychczasowe strzały — drugi raz w to samo pole nie wolno
+  let shownAnswer = -1, revealUntil = 0, revealTimer = null;   // chwila „trafiłem/pudło" przed ruchem rywala
+  let overdue = false, answering = false;                       // rywal przekroczył termin / trwa potwierdzanie
+  const dur = (ms) => { const m = Math.floor(ms / 60000); return m < 1 ? `${Math.floor(ms / 1000)} s` : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+  let drawGen = 0;   // rośnie przy każdej akcji gracza — odcina spóźnione rysowania
+
+  // natychmiastowa reakcja: ustaw pasek statusu bez czekania na serwer
+  const setBanner = (cls, html) => { const b = $("#gbanner"); if (b) { b.className = "banner big-hero " + cls; b.innerHTML = html; } };
+
+  // Nakładka „mój strzał w drodze" — odtwarzana PO każdym rysowaniu ekranu, więc
+  // żadne spóźnione odświeżenie nie może jej skasować ani cofnąć komunikatu.
+  const applyPending = () => {
+    if (sending < 0) return;
+    const oc = $("#opp")?.querySelectorAll(".cell")[sending];
+    if (oc && !/hit|miss/.test(oc.className)) oc.className = "cell sending";
+    setBanner("", `<div class="spin"></div><span class="big">📡 Your shot at ${coord(sending)} — opponent confirming…</span>`);
+  };
+
+  // Potwierdzenie strzału rywala wysyła MOJA przeglądarka automatycznie — nie
+  // wymaga podpisu ani mojej decyzji, więc rywal poznaje wynik od razu, nie
+  // czekając, aż wymyślę własny ruch.
+  const sendAnswer = async (cellShot, mine) => {
+    if (busy || answering) return;
+    answering = true; busy = true; busySince = Date.now(); drawGen++;
+    setBanner("", `<div class="spin"></div><span class="big">🛡 Confirming their shot at ${coord(cellShot)}…</span>`);
+    try {
+      const tree = buildTree(mine.cells, mine.master);
+      const ans = mine.cells[cellShot] ?? 0;
+      log(`confirming shot at <b>${coord(cellShot)}</b>: <b>${ans ? "HIT" : "miss"}</b> + proof (7 hashes)`);
+      const r = await api("/api/move/answer", { id, params: { answer: ans,
+        leafSalt: hex(tree.salts[cellShot]), proof: proofFor(tree, cellShot), playerId: myId } });
+      log(`✓ confirmation accepted by the network: ${txLink(r.txid)}`, "ok");
+    } catch (e) { log("✗ " + e.message, "err"); }
+    finally { busy = false; answering = false; }
+    draw().catch(() => {});
+  };
+
+  const fire = async (cell) => {
+    if (busy) return;
+    if (shotsMine.has(cell)) { log(`square ${coord(cell)} already fired at — pick another`, "warn"); return; }
+    busy = true; busySince = Date.now(); sending = cell; drawGen++;
+    // 1) POKAŻ strzał od razu — zanim transakcja dojdzie
+    const oc = $("#opp") ? $("#opp").querySelectorAll(".cell")[cell] : null;
+    if (oc) oc.className = "cell sending";
+    setBanner("", `<div class="spin"></div><span class="big">📡 Your shot at ${coord(cell)} — opponent confirming…</span>`);
+    try {
+      const { table } = await api("/api/table?id=" + id + "&me=" + myId + "&nick=" + encodeURIComponent(myNick));
+      const st = table.state, mine = loadBoard(id);
+      if (!mine) throw new Error("No board saved for this table in this browser — a board never leaves the device it was placed on. Start a new game.");
+      if (st.pending !== 100) throw new Error("confirming their shot first — try again in a moment");
+      log(`firing at <b>${coord(cell)}</b>`);
+      await signedMove(id, "shoot", { cell, pubkey: hex(xonly), playerId: myId });
+    } catch (e) { log("✗ " + e.message, "err"); sending = -1; }
+    finally { busy = false; }
+    draw().catch(() => {});
+  };
+
+  const draw = async () => {
+    const gen = drawGen;          // pokolenie, w którym ruszyło to rysowanie
+    let table;
+    try { ({ table } = await api("/api/table?id=" + id + "&me=" + myId + "&nick=" + encodeURIComponent(myNick))); }
+    catch (e) { if (/no such table/.test(e.message)) { showTables(); return; } throw e; }
+    // dane pobrane przed akcją gracza (albo w jej trakcie) są już nieaktualne —
+    // nadpisanie nimi ekranu kasowałoby podświetlenie strzału i cofało komunikat
+    if (gen !== drawGen || busy) return;
+    const st = table.state, mine = loadBoard(id);
+    const iAmA = st.a_id === myId, iAmB = st.b_id === myId, spectator = !iAmA && !iAmB;
+    const meTurn = (st.turn === 0 && iAmA) || (st.turn === 1 && iAmB);
+    const myHits = iAmA ? st.hits_a : st.hits_b, oppHits = iAmA ? st.hits_b : st.hits_a;
+    // v3: strzał i potwierdzenie to OSOBNE transakcje. Kolejność jest ścisła
+    // (strzał k → potwierdzenie k → strzał k+1), więc k-te potwierdzenie
+    // odpowiada k-temu strzałowi. Strzały alternują A, B, A, B…
+    const shoots = table.log.filter((l) => l.kind === "shoot");
+    const answers = table.log.filter((l) => l.kind === "answer");
+    const plays = shoots;
+    const myShots = [], myAnswers = [], oppShots = [], oppAnswers = [];
+    shoots.forEach((l, g) => {
+      const shooterIsA = g % 2 === 0;               // twórca stołu zawsze strzela pierwszy
+      const ans = answers[g]?.answer;               // undefined = czeka na potwierdzenie
+      if (spectator ? shooterIsA : shooterIsA === iAmA) { myShots.push(l.cell); myAnswers.push(ans); }
+      else { oppShots.push(l.cell); oppAnswers.push(ans); }
+    });
+    shotsMine.clear(); myShots.forEach((c) => shotsMine.add(c));
+    const isNewMove = lastMoves !== -1 && plays.length !== lastMoves;
+
+    // Rywal odpowiada na mój strzał i strzela SAM w tej samej transakcji — obie
+    // wiadomości docierają w jednej chwili. Rozdzielamy je w czasie: najpierw
+    // przez moment sam wynik mojego strzału, dopiero potem jego ruch.
+    const lastShotIdx = myShots.length - 1;
+    if (isNewMove && lastShotIdx >= 0 && myAnswers[lastShotIdx] !== undefined && shownAnswer !== lastShotIdx) {
+      shownAnswer = lastShotIdx;
+      revealUntil = Date.now() + 1300;
+      clearTimeout(revealTimer);
+      revealTimer = setTimeout(() => { revealUntil = 0; if (current === id) draw().catch(() => {}); }, 1350);
+    }
+    const revealing = Date.now() < revealUntil && lastShotIdx >= 0 && myAnswers[lastShotIdx] !== undefined;
+    const revCell = revealing ? myShots[lastShotIdx] : -1;
+    const revHit = revealing && myAnswers[lastShotIdx] === 1;
+
+    // opisz w konsoli świeże ruchy rywala (przy wejściu na stół bez replaya historii)
+    if (lastMoves === -1) lastLogLen = table.log.length;
+    if (table.log.length > lastLogLen) {
+      table.log.slice(lastLogLen).forEach((l) => {
+        if (l.by === myId) return;                       // swoje już opisaliśmy na bieżąco
+        const kto = table.vsBot ? "🤖 BOT" : "⚔ " + oppName(table, iAmA);
+        if (l.kind === "join") log(`${kto} sat down and froze their board: ${txLink(l.txid)}`, "warn");
+        else if (l.kind === "answer")
+          log(`${kto} confirms <b>${l.answer === 1 ? "HIT" : "miss"}</b> at ${coord(l.cell)} (with proof) → ${txLink(l.txid)}`, "warn");
+        else if (l.kind === "shoot") log(`${kto} fires at <b>${coord(l.cell)}</b> → ${txLink(l.txid)}`, "warn");
+        else if (l.kind === "timeout") log(`${kto}: settled on timeout ${txLink(l.txid)}`, "warn");
+      });
+    }
+    lastLogLen = table.log.length;
+    lastMoves = plays.length;
+
+    let cls = "", icon = "", text = "";
+    if (st.phase === 0) { cls = "wait"; icon = '<div class="spin"></div>'; text = "Table waiting for an opponent…"; }
+    else if (st.phase === 2) {
+      const iWon = (st.winner === 0 && iAmA) || (st.winner === 1 && iAmB);
+      if (spectator) text = `Game over — player ${st.winner === 0 ? "A" : "B"} won`;
+      else { cls = iWon ? "you" : ""; text = iWon ? "🎉 VICTORY!" : "Defeated — better luck next time"; }
+    } else if (spectator) { cls = "wait"; icon = '<div class="spin"></div>'; text = "Game in progress…"; }
+    else {
+      // KAŻDY komunikat mówi wprost, CZYJ to strzał — inaczej nie da się odróżnić
+      // własnego wyniku od ruchu rywala. Pętla tury: mój strzał → jego wynik →
+      // czekam → jego strzał → mój wynik → mój ruch.
+      const oppHere = iAmA ? table.online?.b : table.online?.a;
+      const mk = myShots.length - 1, ok = oppShots.length - 1;
+      const myAns = mk >= 0 ? myAnswers[mk] : undefined;      // wynik MOJEGO strzału
+      const oppAns = ok >= 0 ? oppAnswers[ok] : undefined;    // co zrobił strzał RYWALA
+      const mineLast = [...table.log].reverse().find((l) => l.kind === "shoot" && l.by === myId);
+      const waitMs = mineLast ? Date.now() - mineLast.at : 0;
+      // `deadline` żyje w tej samej, cofniętej o 20 min skali co lockTime ruchów
+      // (węzeł porównuje z MEDIANĄ czasu bloków). Porównywanie go wprost z zegarem
+      // ściennym uznawałoby termin za przekroczony 20 minut za wcześnie.
+      const netNow = Date.now() - 1_200_000;
+      overdue = !meTurn && st.deadline > 0 && netNow > st.deadline;
+
+      if (revealing) {
+        // Wynik MOJEGO strzału dostaje własną chwilę — bez tego szybki rywal
+        // (albo bot) przeskakuje od razu do swojego ruchu i własnego wyniku
+        // w ogóle się nie widzi.
+        cls = revHit ? "you" : "wait";
+        text = revHit ? `🔥 Your shot at ${coord(revCell)} — HIT! · waiting for their move…`
+                      : `💧 Your shot at ${coord(revCell)} — miss. · waiting for their move…`;
+      }
+      else if (overdue) { cls = ""; text = `⌛ Opponent ran out of time — you can end the game and win`; }
+      else if (meTurn && st.pending !== 100) {
+        // rywal właśnie strzelił; moja przeglądarka to potwierdza
+        cls = ""; icon = '<div class="spin"></div>';
+        text = `🛡 They fired at ${coord(st.pending)} — checking my board…`;
+      }
+      else if (meTurn) {
+        cls = "you";
+        const o = oppAns === undefined ? ""
+          : oppAns === 1 ? `💥 They HIT at ${coord(oppShots[ok])} · ` : `💧 They missed at ${coord(oppShots[ok])} · `;
+        text = `${o}🎯 YOUR MOVE — pick a target`;
+      }
+      else if (mk < 0) {
+        // jeszcze nie strzelałem (rywal otwiera partię) — nie ma czego potwierdzać
+        cls = "wait"; icon = oppHere === false ? "🚪" : '<div class="spin"></div>';
+        text = oppHere === false ? `Opponent left the table — waiting for them to return` : `⏳ Waiting for their move…`;
+      }
+      else if (myAns === undefined) {
+        // mój strzał czeka na potwierdzenie — TYLKO rywal zna wynik
+        cls = "wait"; icon = oppHere === false ? "🚪" : '<div class="spin"></div>';
+        text = oppHere === false
+          ? `Opponent left the table — you will learn the result of your shot at ${coord(myShots[mk])} when they return`
+          : `📡 Your shot at ${coord(myShots[mk])} — opponent confirming…`;
+      }
+      else {
+        // wynik znany, teraz czekam już tylko na JEGO ruch
+        cls = "wait";
+        const m = myAns === 1 ? `🔥 Your shot at ${coord(myShots[mk])} — HIT!` : `💧 Your shot at ${coord(myShots[mk])} — miss.`;
+        text = oppHere === false ? `${m} · 🚪 opponent left the table` : `${m} · waiting for their move…`;
+      }
+      if (!overdue && !meTurn && st.deadline > 0 && waitMs > 45000)
+        text += ` · they have until ${new Date(st.deadline + 1_200_000).toLocaleTimeString().slice(0, 5)}`;
+    }
+
+    const revealNow = isNewMove && /HIT!|HIT at|miss\.|missed at/.test(text);
+    $("#view").innerHTML = `
+      <div class="banner big-hero ${cls}${revealNow ? " reveal" : ""}${overdue ? " over" : ""}" id="gbanner">${icon}<span class="big">${text}</span>
+        ${overdue ? `<button id="towin" style="margin-left:auto;">End it and win</button>`
+          : !spectator && st.phase !== 0 ? `<span class="score">${myHits} : ${oppHits}</span>` : ""}</div>
+      <div class="metaline">move ${table.log.length} · table ${id} ·
+        ${table.log.length ? txLink(table.log[table.log.length - 1].txid) : "—"}
+        ${st.phase === 1 && !spectator ? ` · <a href="#" id="to">claim timeout</a>` : ""}
+        · <a href="#" id="back">all tables</a></div>
+      ${st.phase === 0 && iAmA ? `<div class="panel endcard">
+        <div class="endline">Your table is open — waiting ${ago(table.created)}. Send this link to whoever you want to play.</div>
+        <p class="hint" style="margin:0 0 12px;">They need no wallet and no account — just the link. Your fleet is already
+        frozen on-chain, so you cannot change it now, and nobody can read it either. If nobody ever sits down, the table
+        expires after 7 days and its deposit goes back into circulation.</p>
+        <div class="row">
+          <input id="invite" readonly value="${location.origin}${BASE}/#${id}"
+                 style="flex:1;min-width:240px;font-family:'Roboto Mono',monospace;font-size:12px;background:#16232f;color:var(--txt);border:1px solid var(--kas-dim);border-radius:9px;padding:11px 13px;">
+          <button id="copy">Copy link</button>
+        </div></div>` : ""}
+      ${st.phase === 2 ? `<div class="panel endcard">
+        <div class="endline">${spectator ? "Game over" : (st.winner === 0 && iAmA) || (st.winner === 1 && iAmB)
+          ? "You sank the whole fleet." : "Your fleet went down this time."}
+          ${!spectator ? ` Final score <b>${myHits} : ${oppHits}</b>.` : ""}</div>
+        <p class="hint" style="margin:0 0 14px;">Every move of this game is a real transaction on Kaspa testnet —
+        ${table.log.length} of them. The table settles itself: within a minute the covenant closes and its
+        deposit returns. Nothing left to do here.</p>
+        <div class="row">
+          <button id="again">▶ Play again</button>
+          <button class="ghost" id="back2">All tables</button>
+          <a class="ghost btnlink" href="${EXPLORER}${table.log[table.log.length - 1].txid}" target="_blank" rel="noopener">Final transaction ↗</a>
+        </div>
+        <details class="txlist"><summary>Every transaction of this game (${table.log.length}) — check them yourself</summary>
+          <ol>${table.log.map((l) => `<li><span>${
+            l.kind === "shoot" ? `shot at ${coord(l.cell)}`
+            : l.kind === "answer" ? `confirmed ${l.answer === 1 ? "HIT" : "miss"} at ${coord(l.cell)}`
+            : l.kind === "create" ? "table opened (covenant genesis)"
+            : l.kind === "join" ? "opponent sat down, board frozen"
+            : l.kind === "timeout" ? "settled on timeout" : "table closed, deposit returned"
+          }</span> ${txLink(l.txid)}</li>`).join("")}</ol>
+          <p class="hint" style="margin:10px 0 0;">The board itself is nowhere in these transactions — only a Merkle root
+          and, per answer, one leaf plus seven sibling hashes. That is what the network recomputes.</p>
+        </details></div>` : ""}
+      <div class="panel boards" style="padding-top:12px;">
+        <div class="bx"><h3>${spectator ? nickOrId(table.nick?.a, st.a_id) : "Your fleet"}</h3><div class="board" id="me"></div></div>
+        <div class="bx ${meTurn && st.phase === 1 && !spectator ? "active" : ""}">
+          <h3>${spectator ? nickOrId(table.nick?.b, st.b_id) : oppName(table, iAmA) + (meTurn && st.phase === 1 ? " ▸" : "")}
+            ${!spectator && st.phase === 1 ? (() => { const o = iAmA ? table.online?.b : table.online?.a;
+              return o === false ? `<span class="pres off" title="Opponent has no game open — they cannot confirm your shot right now">away</span>`
+                                 : `<span class="pres on" title="Opponent has the game open — they will confirm your shot instantly">at the table</span>`; })() : ""}</h3>
+          <div class="board ${meTurn && st.phase === 1 && !spectator ? "aim" : ""}" id="opp"></div></div>
+      </div>`;
+    $("#back").onclick = (e) => { e.preventDefault?.(); showTables(); };
+    if ($("#back2")) $("#back2").onclick = () => showTables();
+    if ($("#copy")) $("#copy").onclick = async () => {
+      const el = $("#invite"); el.select();
+      try { await navigator.clipboard.writeText(el.value); } catch { document.execCommand("copy"); }
+      $("#copy").textContent = "Copied ✓"; setTimeout(() => { const c = $("#copy"); if (c) c.textContent = "Copy link"; }, 1800);
+    };
+    // „jeszcze raz" z tym samym rywalem i tym samym oknem czasowym
+    if ($("#again")) $("#again").onclick = () => showPlacement(null, !!table.vsBot, winKey(st.move_window));
+    const claim = async (e) => { e?.preventDefault?.(); try { log("claiming timeout…");
+      const r = await api("/api/move/timeout", { id }); log(`✓ the network settled the game: ${txLink(r.txid)}`, "ok"); draw().catch(() => {}); }
+      catch (e) { log("✗ " + e.message, "err"); } };
+    const to = $("#to"); if (to) to.onclick = claim;
+    const towin = $("#towin"); if (towin) towin.onclick = claim;
+
+    // MOJA plansza: moje statki + strzały rywala we mnie (znam własną planszę,
+    // więc od razu pokazuję trafienie/pudło; podświetlam ostatni strzał rywala)
+    // podczas odsłaniania wyniku wstrzymujemy pokazanie ŚWIEŻEGO strzału rywala
+    const oppVisible = revealing ? oppShots.slice(0, -1) : oppShots;
+    grid($("#me"), (i) => {
+      const k = oppVisible.indexOf(i), wasShot = k !== -1;
+      if (mine) {
+        const isShip = mine.cells[i] === 1;
+        let c = wasShot ? (isShip ? "hit" : "miss") : (isShip ? "ship" : "");
+        if (i === st.pending && meTurn && !revealing) c += " lastshot";   // rywal strzelił tu — Twoja odpowiedź
+        return c;
+      }
+      // widz nie zna planszy — hit/miss czyta z odpowiedzi udowodnionych w logu
+      const ans = oppAnswers[k];
+      return wasShot ? (ans === 1 ? "hit" : ans === 0 ? "miss" : "wait") : "";
+    });
+    // PLANSZA RYWALA: wyłącznie MOJE strzały i JEGO odpowiedzi (nie znam jego statków)
+    grid($("#opp"), (i) => {
+      const k = myShots.indexOf(i); if (k === -1) return "";
+      const ans = myAnswers[k];
+      let c = ans === 1 ? "hit" : ans === 0 ? "miss" : "wait";   // wait = czeka na odpowiedź rywala
+      if (i === myShots[myShots.length - 1]) c += " lastshot";
+      if (i === revCell) c += " justrevealed";
+      return c;
+    }, meTurn && st.phase === 1 && !spectator ? (i) => { if (!shotsMine.has(i)) fire(i); } : null);
+
+    // Nakładka „strzał w drodze" ma prawo żyć TYLKO dopóki czekam na rywala.
+    // Gdy stan gry mówi, że ruch wrócił do mnie (albo partia się skończyła),
+    // kasujemy ją bezwarunkowo — inaczej ekran potrafił zamarznąć na komunikacie.
+    if (sending >= 0 && (meTurn || st.phase !== 1 || myShots.includes(sending))) sending = -1;
+    applyPending();
+
+    // mam do potwierdzenia strzał rywala? zrób to od razu, sam
+    // …ale dopiero gdy gracz zobaczył wynik WŁASNEGO strzału
+    if (!spectator && st.phase === 1 && meTurn && st.pending !== 100 && mine && !busy && !answering && !revealing)
+      sendAnswer(st.pending, mine);
+  };
+
+  onEvent = (evId) => { if (evId === id && !busy) draw().catch(() => {}); };
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    if (current !== id) return;
+    // zawieszona operacja nie może uwięzić ekranu na zawsze
+    if (busy && Date.now() - busySince > 75000) { busy = false; sending = -1; log("move did not land within 75s — unlocking the board", "warn"); }
+    if (!busy) draw().catch(() => {});
+  }, 5000); // siatka bezpieczeństwa, gdyby zdarzenie live nie dotarło
+  await draw();
+}
+
+log(`connected · testnet-10 · <b>build 16:55</b>`, "ok");
+{
+  // wejście z linku „…/battleship/#<id stołu>" otwiera od razu tę partię
+  const deep = location.hash.slice(1).trim();
+  (deep && /^[0-9a-f]{6,}$/i.test(deep) ? showGame(deep) : showTables())
+    .catch((e) => { log("✗ " + e.message, "err"); showTables().catch(() => {}); });
+}
+window.addEventListener("hashchange", () => {
+  const h = location.hash.slice(1).trim();
+  if (h && h !== current) showGame(h).catch(() => showTables().catch(() => {}));
+  if (!h && current) showTables().catch(() => {});
+});
+</script>
+</body>
+</html>

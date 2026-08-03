@@ -1,0 +1,281 @@
+// Battleship on Kaspa covenants — the rules are enforced by consensus, not by a server.
+//
+// COMMIT-REVEAL. Before the game starts each player freezes their board as a
+// Merkle root (128 leaves; leaf = blake2b(cell index ++ value ++ cell salt)).
+// The board stays secret, but it can no longer be changed. Answering "hit" or
+// "miss" means PROVING it: the player supplies the cell value, its salt and
+// seven sibling hashes, and this contract recomputes the path. A false answer
+// lands on a different hash and the transaction is rejected by the network.
+//
+// A TURN IS TWO TRANSACTIONS. `answer` confirms the opponent's shot and needs
+// NO signature — a Merkle proof authenticates itself, so only the truth is
+// publishable. `shoot` picks the next target and does need one, because that is
+// the player's only real decision. Splitting them means the shooter learns the
+// result immediately instead of waiting for the opponent to choose a move.
+//
+// WHAT THIS CONTRACT ENFORCES, beyond truthful answers:
+//
+//   1. A MONOTONIC CLOCK. `deadline` is derived from `tx.locktime`, which is
+//      chosen by whoever builds the transaction. Left unchecked, a player could
+//      set 0, land a deadline in 1970 and immediately call the keyless
+//      `timeout()`, winning before the opponent ever moved. Every entry
+//      therefore requires locktime to exceed the previous move's locktime (kept
+//      in state as `deadline - move_window`). Together with the consensus rule
+//      that a transaction with a future locktime is not final, this pins
+//      locktime to (previous move, now]. Locktime must also exceed Kaspa's
+//      LOCK_TIME_THRESHOLD (500e9), because below it consensus reads locktime as
+//      a DAA score rather than a timestamp. For `join` the reference point is the
+//      table creation stamp, seeded into `deadline` at genesis.
+//
+//   2. NO REPEATED SHOTS. Without this, a player could fire seven times at one
+//      known ship cell and win — the opponent must answer honestly every time,
+//      since the proof binds the cell to its value. State therefore carries a
+//      25-bit mask of shots taken, per player.
+//
+//   3. A FULL FLEET, WITHOUT ZK. An empty board would be unsinkable. With shot
+//      dedup enforced, hits + misses <= 25 per board; a legal board has 7 ship
+//      cells and 18 empty ones, so an honest defender can never be forced into a
+//      19th miss. `require(miss <= MAX_MISS)` therefore blocks the CHEATER's own
+//      transaction — they are the one answering "miss" — never the victim's. A
+//      cheater simply cannot move, overruns the deadline and loses on `timeout()`.
+//
+//   4. AN EXIT. Every other entry requires `next.value == self.value`, so without
+//      `rescue` the table deposit would stay locked in the covenant forever.
+//
+// Board is 5x5 (25 cells, indices 0..24), fleet 3+2+1+1 = 7 cells, Merkle tree
+// of 128 leaves (leaf = blake2b(cell index ++ value ++ cell salt)).
+
+const int NO_PENDING = 100;   // no shot awaiting an answer
+const int SHIP_CELLS = 7;     // hits needed to win (5x5 board, fleet 3+2+1+1)
+const int BOARD_CELLS = 25;
+const int MAX_MISS = 18;      // 25 - 7: the most misses a legal board can hold
+const int TIME_FLOOR = 500000000000;   // Kaspa LOCK_TIME_THRESHOLD: below this a node reads locktime as a DAA score
+const int STALE_MS = 604800000;        // 7 days — after this a table counts as abandoned
+const int WAITING = 0;
+const int PLAYING = 1;
+const int FINISHED = 2;
+
+state GameState {
+    byte[32] a_id;        // blake2b(player A public key)
+    byte[32] b_id;        // player B; zeros = free seat at the table
+    byte[32] root_a;      // player A frozen board
+    byte[32] root_b;
+    int turn;             // 0 = A to move, 1 = B to move
+    int pending;          // cell that must be answered (0..24) or 100
+    int hits_a;           // hits scored BY A (into B's board)
+    int hits_b;
+    int miss_a;           // A's misses (into B's board) — proof that B's fleet is full
+    int miss_b;
+    int shots_a;          // 25-bit mask of cells A has already fired at
+    int shots_b;
+    int deadline;         // WAITING: table creation stamp; PLAYING: move deadline (unix ms)
+    int move_window;      // time allowed per move (ms)
+    int phase;
+    int winner;           // 0 = A, 1 = B (only meaningful once phase is FINISHED)
+}
+
+actor Game owns GameState {
+
+    // The second player sits down and freezes their board.
+    entry join(byte[32] root, sig s, pubkey pk) emits { next: Game } {
+        require(phase == WAITING);
+        require(blake2b(pk) != a_id);          // you cannot play against yourself
+        require(checkSig(s, pk));
+        require(next.value == self.value);
+
+        // Lower time bound: locktime must be a timestamp (not a DAA score) and must
+        // be later than the table creation stamp seeded into `deadline`. Without
+        // this the joiner could set locktime = 0, land a deadline in 1970 and win
+        // by timeout() straight away.
+        require(tx.locktime >= TIME_FLOOR);
+        require(tx.locktime > deadline);
+
+        GameState u = {
+            a_id: a_id, b_id: blake2b(pk), root_a: root_a, root_b: root,
+            turn: 0, pending: NO_PENDING, hits_a: 0, hits_b: 0,
+            miss_a: 0, miss_b: 0, shots_a: 0, shots_b: 0,
+            deadline: tx.locktime + move_window, move_window: move_window,
+            phase: PLAYING, winner: 0,
+        };
+        become next <- Game(u);
+    }
+
+    // CONFIRMING the opponent's shot — NO SIGNATURE.
+    //
+    // A Merkle proof authenticates itself: no path leads to a false value,
+    // so only the TRUTH is publishable. A signature would add
+    // nothing here (same pattern as the keyless `timeout`). This lets the
+    // defender's browser send the confirmation BY ITSELF the moment it sees a shot —
+    // the shooter learns the result at once, without waiting for the opponent to pick a move.
+    entry answer(
+        int answer,          // 1 = hit, 0 = miss — the answer to `pending`
+        byte[32] leaf_salt,  // salt of cell `pending` from MY board
+        byte[32] p0, byte[32] p1, byte[32] p2, byte[32] p3,
+        byte[32] p4, byte[32] p5, byte[32] p6
+    ) emits { next: Game } {
+        require(phase == PLAYING);
+        require(pending != NO_PENDING);      // nothing to answer
+        require(answer == 0 || answer == 1);
+        require(tx.locktime >= TIME_FLOOR);
+        require(tx.locktime > deadline - move_window);
+
+        int new_hits_a = hits_a;
+        int new_hits_b = hits_b;
+        int new_miss_a = miss_a;
+        int new_miss_b = miss_b;
+
+        int idx = pending;
+        byte[32] h = blake2b(byte[8](idx) + byte[8](answer) + leaf_salt);
+        // level 0: left/right branch from bit 0 of the cell index
+        if ((idx / 1) % 2 == 0) {
+            h = blake2b(h + p0);
+        } else {
+            h = blake2b(p0 + h);
+        }
+        // level 1: left/right branch from bit 1 of the cell index
+        if ((idx / 2) % 2 == 0) {
+            h = blake2b(h + p1);
+        } else {
+            h = blake2b(p1 + h);
+        }
+        // level 2: left/right branch from bit 2 of the cell index
+        if ((idx / 4) % 2 == 0) {
+            h = blake2b(h + p2);
+        } else {
+            h = blake2b(p2 + h);
+        }
+        // level 3: left/right branch from bit 3 of the cell index
+        if ((idx / 8) % 2 == 0) {
+            h = blake2b(h + p3);
+        } else {
+            h = blake2b(p3 + h);
+        }
+        // level 4: left/right branch from bit 4 of the cell index
+        if ((idx / 16) % 2 == 0) {
+            h = blake2b(h + p4);
+        } else {
+            h = blake2b(p4 + h);
+        }
+        // level 5: left/right branch from bit 5 of the cell index
+        if ((idx / 32) % 2 == 0) {
+            h = blake2b(h + p5);
+        } else {
+            h = blake2b(p5 + h);
+        }
+        // level 6: left/right branch from bit 6 of the cell index
+        if ((idx / 64) % 2 == 0) {
+            h = blake2b(h + p6);
+        } else {
+            h = blake2b(p6 + h);
+        }
+            // the path must lead to the board of WHOEVER ANSWERS
+        if (turn == 0) { require(h == root_a); } else { require(h == root_b); }
+
+        // the result is credited to the opponent (they fired)
+        if (answer == 1) {
+            if (turn == 0) { new_hits_b = hits_b + 1; } else { new_hits_a = hits_a + 1; }
+        } else {
+            if (turn == 0) { new_miss_b = miss_b + 1; } else { new_miss_a = miss_a + 1; }
+        }
+
+        // full-fleet proof: a 19th miss is only possible on a board with < 7 ship cells
+        require(new_miss_a <= MAX_MISS);
+        require(new_miss_b <= MAX_MISS);
+
+        int new_phase = PLAYING;
+        int new_winner = 0;
+        if (new_hits_a >= SHIP_CELLS) { new_phase = FINISHED; new_winner = 0; }
+        if (new_hits_b >= SHIP_CELLS) { new_phase = FINISHED; new_winner = 1; }
+
+        // the turn STAYS with the answerer — after confirming, they fire
+        require(next.value == self.value);
+        GameState u = {
+            a_id: a_id, b_id: b_id, root_a: root_a, root_b: root_b,
+            turn: turn, pending: NO_PENDING,
+            hits_a: new_hits_a, hits_b: new_hits_b,
+            miss_a: new_miss_a, miss_b: new_miss_b,
+            shots_a: shots_a, shots_b: shots_b,
+            deadline: tx.locktime + move_window, move_window: move_window,
+            phase: new_phase, winner: new_winner,
+        };
+        become next <- Game(u);
+    }
+
+    // THE SHOT — needs a signature, because it is the player's only decision.
+    entry shoot(int cell, sig s, pubkey pk) emits { next: Game } {
+        require(phase == PLAYING);
+        require(pending == NO_PENDING);       // confirm the opponent's shot first
+        require(checkSig(s, pk));
+        require(cell >= 0 && cell < BOARD_CELLS);
+        require(tx.locktime >= TIME_FLOOR);
+        require(tx.locktime > deadline - move_window);
+
+        byte[32] me = blake2b(pk);
+        if (turn == 0) { require(me == a_id); } else { require(me == b_id); }
+
+        // dedup: 2^cell via bit decomposition of the exponent
+        int bit = 1;
+        if ((cell / 1) % 2 == 1) { bit = bit * 2; }
+        if ((cell / 2) % 2 == 1) { bit = bit * 4; }
+        if ((cell / 4) % 2 == 1) { bit = bit * 16; }
+        if ((cell / 8) % 2 == 1) { bit = bit * 256; }
+        if ((cell / 16) % 2 == 1) { bit = bit * 65536; }
+
+        int my_shots = shots_a;
+        if (turn == 1) { my_shots = shots_b; }
+        require((my_shots / bit) % 2 == 0);   // I have not fired at this cell yet
+
+        int new_shots_a = shots_a;
+        int new_shots_b = shots_b;
+        if (turn == 0) { new_shots_a = shots_a + bit; } else { new_shots_b = shots_b + bit; }
+
+        int next_turn = 1;
+        if (turn == 1) { next_turn = 0; }
+
+        require(next.value == self.value);
+        GameState u = {
+            a_id: a_id, b_id: b_id, root_a: root_a, root_b: root_b,
+            turn: next_turn, pending: cell,
+            hits_a: hits_a, hits_b: hits_b,
+            miss_a: miss_a, miss_b: miss_b,
+            shots_a: new_shots_a, shots_b: new_shots_b,
+            deadline: tx.locktime + move_window, move_window: move_window,
+            phase: PLAYING, winner: winner,
+        };
+        become next <- Game(u);
+    }
+
+    // Abandoned game: after the deadline the waiting player wins. ANYONE may call it
+    // (a relayer), because the outcome is unambiguous — no signature required.
+    entry timeout() emits { next: Game } {
+        require(phase == PLAYING);
+        require(tx.locktime >= deadline);
+        require(next.value == self.value);
+
+        int w = 1;
+        if (turn == 1) { w = 0; }   // whoever had the move loses
+
+        GameState u = {
+            a_id: a_id, b_id: b_id, root_a: root_a, root_b: root_b,
+            turn: turn, pending: pending, hits_a: hits_a, hits_b: hits_b,
+            miss_a: miss_a, miss_b: miss_b, shots_a: shots_a, shots_b: shots_b,
+            deadline: deadline, move_window: move_window,
+            phase: FINISHED, winner: w,
+        };
+        become next <- Game(u);
+    }
+
+    // Reclaiming the table value. `emits none` = the covenant disappears and the deposit
+    // returns to circulation (outputs are unconstrained — this is TESTNET and we deliberately
+    // do not pin a recipient; on mainnet a winner payout via a Payout actor with a pinned
+    // SPK would go here).
+    //
+    // Two paths: the game is settled (FINISHED) or the table was abandoned — nobody
+    // sat down / nobody called timeout for STALE_MS after the last deadline.
+    entry rescue() emits none {
+        require(tx.locktime >= TIME_FLOOR);
+        require(phase == FINISHED || tx.locktime >= deadline + STALE_MS);
+    }
+}
+
+app KasPlayStatki3 { actor Game; }
