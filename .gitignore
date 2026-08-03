@@ -1,4 +1,5 @@
-# NIGDY nie publikować: klucze operatora, stan gry (zawiera klucze i plansze bota)
+# Never publish: operator wallet keys and live game state
+# (tables.json holds the bot's private key and its board)
 *operator*.json
 tables.json
 tables-*.json
