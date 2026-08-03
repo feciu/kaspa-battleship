@@ -1,7 +1,7 @@
-// BLAKE2b-256 — potrzebny w przeglądarce, bo plansza musi być zahaszowana
-// dokładnie tak samo jak w kontrakcie (liść = blake2b(nr ++ wartość ++ sól),
-// węzeł = blake2b(lewy ++ prawy)). Implementacja 32-bitowa (bez BigInt).
-// Zweryfikowana wektorami testowymi względem implementacji Rusta.
+// BLAKE2b-256 — needed in the browser because the board has to be hashed exactly
+// the same way as in the contract (leaf = blake2b(index ++ value ++ salt),
+// node = blake2b(left ++ right)). A 32-bit implementation (no BigInt),
+// verified with test vectors against the Rust implementation.
 const BLAKE2B_IV32 = new Uint32Array([
   0xf3bcc908, 0x6a09e667, 0x84caa73b, 0xbb67ae85, 0xfe94f82b, 0x3c6ef372, 0x5f1d36f1, 0xa54ff53a,
   0xade682d1, 0x510e527f, 0x2b3e6c1f, 0x9b05688c, 0xfb41bd6b, 0x1f83d9ab, 0x137e2179, 0x5be0cd19,
@@ -66,7 +66,7 @@ export function blake2b256(...parts) {
 
   const ctx = { b: new Uint8Array(128), h: new Uint32Array(16), t: 0, c: 0 };
   for (let i = 0; i < 16; i++) ctx.h[i] = BLAKE2B_IV32[i];
-  ctx.h[0] ^= 0x01010000 ^ 32;                        // parametry: brak klucza, wyjście 32B
+  ctx.h[0] ^= 0x01010000 ^ 32;                        // params: no key, 32-byte output
 
   for (let i = 0; i < input.length; i++) {
     if (ctx.c === 128) { ctx.t += ctx.c; compress(ctx, false); ctx.c = 0; }

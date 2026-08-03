@@ -1,15 +1,16 @@
-// KasPlay Statki — serwer stolików (TESTNET, poza KasPlay).
+// KasPlay Battleship — table server (TESTNET, separate from KasPlay).
 //
-// Rola serwera: koordynator, nie sędzia. Buduje transakcje i pokrywa opłaty
-// testnetowe, ale NIE zna plansz graczy (dostaje tylko korzeń Merkle'a) i NIE
-// ma ich kluczy — ruch podpisuje przeglądarka gracza. Serwer może najwyżej
-// odmówić obsługi; nie może skłamać o wyniku, bo to weryfikuje sieć.
+// The server is a coordinator, not a referee. It builds transactions and covers
+// testnet fees, but it does NOT know the players' boards (it only ever sees a
+// Merkle root) and does NOT hold their keys — the player's browser signs every
+// move. The server can at most refuse service; it cannot lie about the result,
+// because the network verifies it.
 import { createRequire } from "module";
-const require = createRequire("file:///root/argent-lab/");
-// Ścieżki przez zmienne środowiskowe — domyślne wartości to nasza instalacja.
-const LAB_DIR = process.env.BS_LAB || "/root/argent-lab";
+const require = createRequire(import.meta.url);
+// Paths come from env vars — the defaults describe our own installation.
+const LAB_DIR = process.env.BS_LAB || new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 globalThis.WebSocket = require(process.env.BS_WS_MODULE
-  || "websocket").w3cwebsocket;   // ustaw BS_WS_MODULE, jeśli moduł leży gdzie indziej
+  || "websocket").w3cwebsocket;   // set BS_WS_MODULE if the module lives elsewhere
 const kaspa = require(process.env.BS_SDK || `${LAB_DIR}/kaspa-sdk/kaspa-wasm32-sdk/nodejs/kaspa/kaspa.js`);
 import http from "node:http";
 import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
@@ -22,15 +23,15 @@ const LAB = LAB_DIR;
 const HERE = `${LAB}/battleship`;
 const PORT = Number(process.env.BS_PORT || 3010);
 const NETWORK = process.env.BS_NETWORK || "testnet-10";
-const TABLE_VALUE = 60_000_000;      // 0.6 TKAS w stoliku — kontrakt v2 ma entry `rescue`,
-                                     // więc po partii wartość wraca do portfela operatora
-const MAX_MISS = 18;                 // 25 - 7: tyle pudeł mieści najlegalniejsza plansza
-const STALE_MS = 604_800_000;        // 7 dni — po tylu stół uznajemy za porzucony
-const CREATE_BACKDATE = 1_800_000;   // 30 min: znacznik założenia stołu musi leżeć PONIŻEJ
-                                     // lockTime'u joinu (ten jest cofnięty o 20 min)
-const MOVE_WINDOW = 86_400_000;      // domyślne okno na ruch (24h)
-// Do wyboru przy zakładaniu stołu. Kontrakt czyta `move_window` ZE STANU, więc
-// wystarczy je zasiać w genesis — skrypt honoruje je bez żadnej zmiany.
+const TABLE_VALUE = 60_000_000;      // 0.6 TKAS sits in the table — contract v2 has a `rescue` entry,
+                                     // so the value returns to the operator wallet after the game
+const MAX_MISS = 18;                 // 25 - 7: the most misses a fully legal board can take
+const STALE_MS = 604_800_000;        // 7 days — after that a table counts as abandoned
+const CREATE_BACKDATE = 1_800_000;   // 30 min: the table-creation marker must sit BELOW the
+                                     // `join` lockTime (which is itself backdated by 20 min)
+const MOVE_WINDOW = 86_400_000;      // default per-move window (24h)
+// Chosen when a table is opened. The contract reads `move_window` FROM STATE, so
+// seeding it in the genesis is enough — the script honours it with no changes.
 const WINDOWS = { "5m": 300_000, "10m": 600_000, "15m": 900_000, "1h": 3_600_000, "15h": 54_000_000, "24h": 86_400_000 };
 const WALLET = JSON.parse(readFileSync(process.env.BS_WALLET || `${LAB}/tn10-operator.json`, "utf8"));
 const ZERO32 = "00".repeat(32);
@@ -39,26 +40,26 @@ const db = () => JSON.parse(readFileSync(`${HERE}/tables.json`, "utf8"));
 const save = (d) => { writeFileSync(`${HERE}/tables.json.tmp`, JSON.stringify(d, null, 2)); renameSync(`${HERE}/tables.json.tmp`, `${HERE}/tables.json`); };
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-// ── most do sieci ─────────────────────────────────────────────────────────
+// ── bridge to the network ─────────────────────────────────────────────────
 let rpc = null;
 const conn = async () => { if (!rpc) { rpc = new kaspa.RpcClient({ resolver: new kaspa.Resolver(), networkId: NETWORK }); await rpc.connect(); } return rpc; };
 const drop = async () => { try { if (rpc) await rpc.disconnect(); } catch {} rpc = null; };
 const DEAD = /WebSocket|not connected|disconnect|closed|timeout/i;
 
-// Publiczne węzły potrafią uciszyć połączenie po chwili bezczynności (lekcja
-// z KasTip: "zombie subscription"). KAŻDE wywołanie RPC musi umieć wstać.
+// Public nodes can quietly mute a connection after a while idle (lesson from
+// KasTip: "zombie subscription"). EVERY RPC call must be able to get back up.
 async function rpcCall(what, fn) {
   for (let att = 1; att <= 4; att++) {
     try { return await fn(await conn()); }
     catch (e) {
       const m = (e.message ?? e).toString();
-      if (DEAD.test(m) && att < 4) { log(`RPC (${what}) padło — łączę ponownie [${att}]`); await drop(); await new Promise((r) => setTimeout(r, 800)); continue; }
+      if (DEAD.test(m) && att < 4) { log(`RPC (${what}) died — reconnecting [${att}]`); await drop(); await new Promise((r) => setTimeout(r, 800)); continue; }
       throw e;
     }
   }
   throw new Error(`RPC ${what}: no connection to a node`);
 }
-// utrzymuj połączenie żywe, żeby nie umierało między partiami
+// keep the connection alive so it does not die between games
 setInterval(() => { rpcCall("ping", (r) => r.getServerInfo()).catch(() => {}); }, 20_000);
 
 const budget = (s) => { const m = String(s).match(/(\d+)/); return m ? parseInt(m[1]) : 0; };
@@ -85,11 +86,11 @@ async function submit(txJson) {
   throw new Error("submit failed");
 }
 
-// ── portfel operatora: jeden łańcuch UTXO, więc ruchy serializujemy ───────
+// ── operator wallet: one UTXO chain, so moves are serialized ──────────────
 let walletTip = null;
 let chainLock = Promise.resolve();
-// Ruchy idą jednym łańcuchem UTXO, więc muszą być szeregowane. Ale JEDNA
-// zawieszona operacja nie może zablokować wszystkich następnych — stąd limit.
+// Moves share a single UTXO chain, so they must be serialized. But ONE hung
+// operation must not block everything queued behind it — hence the timeout.
 const withTimeout = (p, ms, what) => Promise.race([p,
   new Promise((_, rej) => setTimeout(() => rej(new Error(`${what}: timed out after ${ms / 1000}s`)), ms))]);
 const serialize = (fn) => {
@@ -116,12 +117,12 @@ function runBuilder(job) {
     const out = execFileSync(`${LAB}/argent-template/target/release/bs_tx`, [], {
       cwd: `${LAB}/argent-template`, maxBuffer: 32 * 1024 * 1024,
       env: { ...process.env, JOB: f, NETWORK, WALLET_PRIVKEY: WALLET.privateKeyHex,
-             PATH: `${process.env.PATH}:/root/.cargo/bin` },
+             PATH: `${process.env.PATH}${process.env.BS_EXTRA_PATH ? ":" + process.env.BS_EXTRA_PATH : ""}` },
     }).toString();
     return JSON.parse(out.trim().split("\n").pop());
   } catch (e) {
-    // Builder wykonuje transakcję w prawdziwym silniku skryptowym, więc jego
-    // porażka zwykle znaczy: sieć odrzuciłaby ten ruch.
+    // The builder runs the transaction through the real script engine, so a
+    // failure here usually means the network would reject this move.
     const raw = ((e.stderr ?? "") + (e.message ?? "")).toString();
     if (/script failed|verification failed|InputScript|SigHash|Signature/i.test(raw))
       throw new Error("network rejected the move: the proof does not match the frozen board (or it is not your turn)");
@@ -129,7 +130,7 @@ function runBuilder(job) {
   } finally { try { require("fs").unlinkSync(f); } catch {} }
 }
 
-// ── reguły gry po stronie serwera (lustro kontraktu, do podglądu w UI) ────
+// ── server-side game rules (mirror of the contract, for the UI) ───────────
 const NO_PENDING = 100, SHIP_CELLS = 7;
 const bitOf = (cell) => Math.pow(2, cell);                       // 2^cell, cell 0..24
 const shotTaken = (mask, cell) => Math.floor(mask / bitOf(cell)) % 2 === 1;
@@ -142,12 +143,12 @@ function nextState(st, mode, p, lockTime) {
     n.miss_a = 0; n.miss_b = 0; n.shots_a = 0; n.shots_b = 0;
     n.deadline = lockTime + (st.move_window || MOVE_WINDOW); n.phase = 1; n.winner = 0;
   } else if (mode === "answer") {
-    // POTWIERDZENIE strzału rywala — tura ZOSTAJE przy odpowiadającym
+    // CONFIRMING the opponent's shot — the turn STAYS with the responder
     if (p.answer === 1) {
       if (st.turn === 0) n.hits_b = st.hits_b + 1; else n.hits_a = st.hits_a + 1;
     } else {
-      // pudło zapisuje się STRZELAJĄCEMU — to ono dowodzi, że plansza
-      // odpowiadającego ma co najmniej 7 pól statków (miss <= 18)
+      // a miss is credited to the SHOOTER — it is what proves the responder's
+      // board holds at least 7 ship squares (miss <= 18)
       if (st.turn === 0) n.miss_b = st.miss_b + 1; else n.miss_a = st.miss_a + 1;
     }
     n.pending = NO_PENDING;
@@ -155,29 +156,29 @@ function nextState(st, mode, p, lockTime) {
     if (n.hits_b >= SHIP_CELLS) { n.phase = 2; n.winner = 1; }
     n.deadline = lockTime + (st.move_window || MOVE_WINDOW);
   } else if (mode === "shoot") {
-    // bitmaska oddanych strzałów — kontrakt odrzuci powtórkę w to samo pole
+    // bitmask of shots fired — the contract rejects a repeat at the same square
     if (st.turn === 0) n.shots_a = st.shots_a + bitOf(p.cell);
     else               n.shots_b = st.shots_b + bitOf(p.cell);
     n.pending = p.cell;
     n.turn = st.turn === 0 ? 1 : 0;
-    n.deadline = lockTime + (st.move_window || MOVE_WINDOW);   // okno ZE STANU, jak w kontrakcie
+    n.deadline = lockTime + (st.move_window || MOVE_WINDOW);   // window FROM STATE, as in the contract
   } else if (mode === "timeout") {
     n.phase = 2; n.winner = st.turn === 0 ? 1 : 0;
   }
   return n;
 }
 
-// Kontrakt v2 wymaga locktime ostro większego niż locktime poprzedniego ruchu
-// (dla `join`: niż znacznik założenia stołu). Zegar systemowy potrafi się cofnąć
-// przy korekcie NTP, więc dolną granicę wymuszamy jawnie.
+// Contract v2 requires a locktime strictly greater than the previous move's
+// (for `join`: than the table-creation marker). A system clock can jump back on
+// an NTP correction, so we enforce the lower bound explicitly.
 function moveLockTime(st, mode) {
   const floor = mode === "join" ? st.deadline
                                 : st.deadline - (st.move_window || MOVE_WINDOW);
   return Math.max(Date.now() - 1_200_000, floor + 1);
 }
 
-// Zbuduj i wyślij ruch, który NIE wymaga podpisu gracza (answer / timeout).
-// Odpowiedź jest keyless, bo dowód Merkle'a uwierzytelnia sam siebie.
+// Build and send a move that needs NO player signature (answer / timeout).
+// The answer is keyless because the Merkle proof authenticates itself.
 async function unsignedMove(t, mode, params) {
   const w = await walletUtxo();
   const lockTime = moveLockTime(t.state, mode);
@@ -194,17 +195,17 @@ async function unsignedMove(t, mode, params) {
   return { txid, state: next };
 }
 
-const pending = new Map();   // nonce -> przygotowany ruch czekający na podpis gracza
-const createLog = [];        // { ip, at } — każdy stół pali TKAS operatora, więc limitujemy tempo
-const botPending = new Set();  // stoły, dla których ruch bota już zaplanowany
+const pending = new Map();   // nonce -> prepared move awaiting the player's signature
+const createLog = [];        // { ip, at } — every table burns operator TKAS, so we rate-limit
+const botPending = new Set();  // tables that already have a bot move scheduled
 
-// ── obecność graczy ───────────────────────────────────────────────────────
-// Wynik strzału zna WYŁĄCZNIE rywal, więc gracz musi wiedzieć, czy rywal w ogóle
-// siedzi przy stole. Liczymy otwarte strumienie zdarzeń i ostatnią aktywność.
+// ── player presence ───────────────────────────────────────────────────────
+// ONLY the opponent knows the result of a shot, so a player needs to know whether
+// they are at the table at all. We count open event streams and last activity.
 const presence = new Map();   // playerId -> { conns, last }
-// Nicki: czysto kosmetyczne, trzymane obok gry. Nie wchodzą do stanu na łańcuchu
-// (tam liczy się wyłącznie blake2b klucza), więc podszycie się pod cudzy nick
-// nie daje NIC — ruchy i tak podpisuje klucz.
+// Nicknames are purely cosmetic and live next to the game. They never enter the
+// on-chain state (only the blake2b of the key counts there), so impersonating
+// someone's nickname gains NOTHING — moves are still signed with a key.
 const NICKS = `${HERE}/nicks.json`;
 let nicks = {};
 try { nicks = JSON.parse(readFileSync(NICKS, "utf8")); } catch {}
@@ -219,7 +220,7 @@ const seen = (id, nick) => { if (!id) return; setNick(id, nick);
   const p = presence.get(id) ?? { conns: 0, last: 0 }; p.last = Date.now(); presence.set(id, p); };
 const isOnline = (id) => { const p = presence.get(id); return !!p && (p.conns > 0 || Date.now() - p.last < 25_000); };
 
-// ── live: Server-Sent Events — każda zmiana stanu leci do otwartych kart ──
+// ── live: Server-Sent Events — every state change goes to open tabs ───────
 const sseClients = new Set();
 function broadcast(tableId) {
   const msg = `data: ${JSON.stringify({ id: tableId, at: Date.now() })}\n\n`;
@@ -227,18 +228,18 @@ function broadcast(tableId) {
 }
 setInterval(() => { for (const res of sseClients) { try { res.write(":hb\n\n"); } catch { sseClients.delete(res); } } }, 25_000);
 
-// ── BOT: przeciwnik do gry solo ───────────────────────────────────────────
-// Bot to zwykły gracz, tylko jego klucz i plansza leżą na serwerze (nie musi
-// być trustless — to sparingpartner). Gracz gra normalnie: klika i po chwili
-// dostaje odpowiedź, bez przełączania tożsamości.
+// ── BOT: an opponent for solo play ────────────────────────────────────────
+// The bot is an ordinary player whose key and board happen to live on the server
+// (it does not need to be trustless — it is a sparring partner). The human plays
+// normally: click, get an answer, no identity switching.
 const N = 5, CELLS = 25;
-const FLEET = [3, 2, 1, 1];   // 7 pól na planszy 5x5
+const FLEET = [3, 2, 1, 1];   // 7 squares on a 5x5 board
 const around = (i) => { const r = (i / N) | 0, c = i % N, o = [];
   for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
     const nr = r + dr, nc = c + dc; if (nr >= 0 && nr < N && nc >= 0 && nc < N) o.push(nr * N + nc); } return o; };
-// Losowanie bywa ciasne na 5x5 (statki nie mogą się stykać), więc czasem nie
-// mieści całej floty. Niepełna plansza = przeciwnik NIE MOŻE wygrać — dlatego
-// losujemy do skutku i sprawdzamy sumę pól.
+// Random placement is tight on 5x5 (ships may not touch), so it sometimes fails
+// to fit the whole fleet. An incomplete board means the opponent CANNOT win —
+// hence we retry until the square count adds up.
 function botBoard() {
   for (let attempt = 0; attempt < 500; attempt++) {
     const b = tryBoard();
@@ -269,7 +270,7 @@ function treeOf(cells, master) {
 }
 const proofOf = (t, i) => [...Array(7)].map((_, l) => hex(t.nodes[l][(i >> l) ^ 1]));
 
-// wykonuje ruch podpisany kluczem trzymanym po naszej stronie (tylko bot!)
+// makes a move signed with a key we hold ourselves (bot only!)
 async function signedMoveLocal(t, mode, params, privHex) {
   const w = await walletUtxo();
   const lockTime = moveLockTime(t.state, mode);
@@ -288,7 +289,6 @@ async function signedMoveLocal(t, mode, params, privHex) {
   return { txid, state: next };
 }
 
-// bot odpowiada na strzał gracza i sam strzela
 async function botTurn(tableId) { return serialize(() => botTurnInner(tableId)); }
 async function botTurnInner(tableId) {
   let d = db(); let t = d.tables.find((x) => x.id === tableId);
@@ -299,27 +299,27 @@ async function botTurnInner(tableId) {
   if (!isBotTurn(t.state)) return;
   const tree = treeOf(bot.cells, bot.master);
 
-  // 1) najpierw POTWIERDŹ strzał gracza (bez podpisu — dowód mówi sam za siebie)
+  // 1) first CONFIRM the player's shot (keyless — the proof speaks for itself)
   if (t.state.pending !== NO_PENDING) {
     const cellShot = t.state.pending;
     const answer = bot.cells[cellShot] ?? 0;
     try {
       await unsignedMove(t, "answer", { answer, leafSalt: hex(tree.salts[cellShot]),
         proof: proofOf(tree, cellShot), playerId: bot.id });
-      log(`bot potwierdza ${cellShot}: ${answer ? "trafiony" : "pudło"}`);
-    } catch (e) { log("bot (potwierdzenie):", (e.message ?? e).toString().slice(0, 90)); return; }
+      log(`bot confirms ${cellShot}: ${answer ? "hit" : "miss"}`);
+    } catch (e) { log("bot (confirm):", (e.message ?? e).toString().slice(0, 90)); return; }
     d = db(); t = d.tables.find((x) => x.id === tableId);
-    if (!t || t.state.phase !== 1 || !isBotTurn(t.state)) return;   // np. gracz właśnie wygrał
+    if (!t || t.state.phase !== 1 || !isBotTurn(t.state)) return;   // e.g. the player has just won
   }
 
-  // 2) potem STRZEL
+  // 2) then FIRE
   const myMask = botIsA ? t.state.shots_a : t.state.shots_b;
   const free = [...Array(CELLS).keys()].filter((i) => !shotTaken(myMask, i));
   if (!free.length) return;
   const cell = free[(Math.random() * free.length) | 0];
   try { await signedMoveLocal(t, "shoot", { cell, pubkey: bot.pubkey, playerId: bot.id }, bot.priv);
-    log(`bot strzela ${cell}`); }
-  catch (e) { log("bot (strzał):", (e.message ?? e).toString().slice(0, 90)); }
+    log(`bot fires at ${cell}`); }
+  catch (e) { log("bot (shot):", (e.message ?? e).toString().slice(0, 90)); }
 }
 
 // ── API ───────────────────────────────────────────────────────────────────
@@ -330,7 +330,7 @@ const routes = {
       id: t.id, name: t.name, phase: t.state.phase, turn: t.state.turn,
       hitsA: t.state.hits_a, hitsB: t.state.hits_b, winner: t.state.winner,
       playerA: t.state.a_id.slice(0, 10), playerB: t.state.b_id === ZERO32 ? null : t.state.b_id.slice(0, 10),
-      creatorOnline: isOnline(t.state.a_id),   // wolny stół jest wart tyle, ile obecność zakładającego
+      creatorOnline: isOnline(t.state.a_id),   // an open table is worth only as much as its host's presence
       nickA: t.botSecret && t.state.a_id === t.botSecret.id ? "BOT" : nickOf(t.state.a_id),
       nickB: t.botSecret && t.state.b_id === t.botSecret.id ? "BOT" : nickOf(t.state.b_id),
       moves: t.log.length, created: t.created, covenantId: t.covenantId, vsBot: !!t.botSecret,
@@ -343,7 +343,7 @@ const routes = {
     seen(q.me, q.nick);
     const t = db().tables.find((x) => x.id === q.id);
     if (!t) throw new Error("no such table");
-    // partia z botem nie może stać w miejscu, gdy jego ruch przepadł (błąd sieci)
+    // a game against the bot must not stall when its move was lost (network error)
     if (t.botSecret && t.state.phase === 1) {
       const botIsA = t.state.a_id === t.botSecret.id;
       const botTurnNow = (t.state.turn === 0 && botIsA) || (t.state.turn === 1 && !botIsA);
@@ -352,8 +352,8 @@ const routes = {
         setTimeout(() => { botTurn(t.id).catch(() => {}).finally(() => botPending.delete(t.id)); }, 500);
       }
     }
-    const { botSecret, ...safe } = t;          // plansza bota zostaje na serwerze
-    // bot nigdy nie odchodzi od stołu; człowiek — bywa
+    const { botSecret, ...safe } = t;          // the bot's board stays on the server
+    // the bot never walks away from the table; a human sometimes does
     const online = { a: !!botSecret && t.state.a_id === botSecret.id ? true : isOnline(t.state.a_id),
                      b: !!botSecret && t.state.b_id === botSecret.id ? true : isOnline(t.state.b_id) };
     const nick = { a: botSecret && t.state.a_id === botSecret.id ? "BOT" : nickOf(t.state.a_id),
@@ -361,14 +361,14 @@ const routes = {
     return { table: { ...safe, vsBot: !!botSecret, online, nick } };
   },
 
-  // Stół zakłada gracz A: genesis fundujemy my, bo A nie ma jeszcze nic na łańcuchu.
+  // Player A opens the table: we fund the genesis, because A has nothing on-chain yet.
   "POST /api/table/create": async (b) => serialize(async () => {
     const now = Date.now();
     while (createLog.length && now - createLog[0].at > 3_600_000) createLog.shift();
-    // Limity chronią portfel operatora przed pętlą, a nie przed graczami. Od v3
-    // `rescue` odzyskuje depozyt stołu, więc realny koszt to same opłaty —
-    // stąd luźniejsze progi. Za ciasny limit na IP odcinał całe biura i sieci
-    // komórkowe (CGNAT), gdzie wielu graczy dzieli jeden adres.
+    // The limits protect the operator wallet from a runaway loop, not from players.
+    // Since v3 `rescue` reclaims the table deposit, the real cost is just fees —
+    // hence the loose thresholds. A tight per-IP limit used to cut off whole
+    // offices and mobile networks (CGNAT), where many players share one address.
     if (createLog.length >= 120) throw new Error("hourly limit of new tables reached — please try later");
     if (createLog.filter((c) => c.ip === b._ip).length >= 25) throw new Error("too many tables from this address — try again in an hour");
     createLog.push({ ip: b._ip, at: now });
@@ -376,9 +376,9 @@ const routes = {
     const st = { a_id: b.playerId, b_id: ZERO32, root_a: b.root, root_b: ZERO32,
       turn: 0, pending: NO_PENDING, hits_a: 0, hits_b: 0,
       miss_a: 0, miss_b: 0, shots_a: 0, shots_b: 0,
-      // v2: w fazie WAITING `deadline` to ZNACZNIK ZAŁOŻENIA STOŁU — dolna granica
-      // locktime'u dla `join`. Cofnięty o 30 min, bo każdy ruch dostaje lockTime
-      // 20 min wstecz (mediana czasu bloków wlecze się za zegarem).
+      // v2: in the WAITING phase `deadline` is the TABLE-CREATION MARKER — the lower
+      // bound for the `join` locktime. Backdated by 30 min, because every move gets
+      // a lockTime 20 min in the past (median block time lags the wall clock).
       deadline: Date.now() - CREATE_BACKDATE,
       move_window: WINDOWS[b.window] ?? MOVE_WINDOW, phase: 0, winner: 0 };
     const r = runBuilder({ mode: "create", wallet: w, state: st, tableValue: TABLE_VALUE });
@@ -386,15 +386,15 @@ const routes = {
     walletTip = r.walletAfter;
     const addr = kaspa.addressFromScriptPublicKey(new kaspa.ScriptPublicKey(0, r.tx.outputs[0].spkScript), NETWORK).toString();
     const d = db();
-    d.tables.push({ id: randomUUID().slice(0, 8), name: b.name || "Stół", covenantId: r.covenantId,
+    d.tables.push({ id: randomUUID().slice(0, 8), name: b.name || "Table", covenantId: r.covenantId,
       outpoint: r.outpoint, state: st, address: addr, genesisTxid: txid, created: Date.now(),
       log: [{ kind: "create", txid, at: Date.now(), by: "A" }] });
     save(d);
     broadcast(d.tables[d.tables.length - 1].id);
     const created = d.tables[d.tables.length - 1];
-    log("stół założony", txid.slice(0, 12));
+    log("table created", txid.slice(0, 12));
     if (b.vsBot) {
-      // bot dostaje własny klucz i planszę; siada natychmiast
+      // the bot gets its own key and board, and sits down at once
       const priv = hex(randomBytes(32));
       const pk = new kaspa.PrivateKey(priv);
       const pubkey = pk.toPublicKey().toXOnlyPublicKey().toString();
@@ -405,19 +405,19 @@ const routes = {
       t.botSecret = created.botSecret;
       try {
         await signedMoveLocal(t, "join", { root: treeOf(cells, master).root, pubkey, playerId: created.botSecret.id }, priv);
-        log("bot usiadł do stołu", created.id);
-      } catch (e) { log("bot nie usiadł:", (e.message ?? e).toString().slice(0, 90)); }
+        log("bot sat down at table", created.id);
+      } catch (e) { log("bot failed to sit down:", (e.message ?? e).toString().slice(0, 90)); }
     }
     return { ok: true, txid, id: created.id, address: addr, vsBot: !!b.vsBot };
   }),
 
-  // Ruch (join/play/timeout) w dwóch krokach: skrót do podpisu, potem podpis.
+  // A move (join/play/timeout) in two steps: digest to sign, then the signature.
   "POST /api/move/prepare": async (b) => serialize(async () => {
     const d = db();
     const t = d.tables.find((x) => x.id === b.id);
     if (!t) throw new Error("no such table");
-    // Te same reguły egzekwuje kontrakt — sprawdzamy je tu tylko po to, żeby
-    // gracz dostał zrozumiały komunikat zamiast surowego odrzucenia przez sieć.
+    // The contract enforces the same rules — we check them here only so the player
+    // gets a readable message instead of a raw rejection from the network.
     if (b.mode === "shoot") {
       if (t.state.pending !== NO_PENDING)
         throw new Error("their shot must be confirmed first");
@@ -425,7 +425,7 @@ const routes = {
       if (shotTaken(mask, b.params.cell))
         throw new Error("that square has already been fired at — pick another");
     }
-    const w = await walletUtxo();   // aktualny tip; commit sprawdzi, że się nie zmienił
+    const w = await walletUtxo();   // current tip; commit verifies it has not changed
     const lockTime = moveLockTime(t.state, b.mode);
     const next = nextState(t.state, b.mode, b.params, lockTime);
     const job = { mode: b.mode, wallet: w, covenantId: t.covenantId, outpoint: t.outpoint,
@@ -441,9 +441,9 @@ const routes = {
     const p = pending.get(b.nonce);
     if (!p) throw new Error("STALE");
     pending.delete(b.nonce);
-    // Gracz podpisał skrót transakcji zbudowanej na KONKRETNYM UTXO portfela.
-    // Jeśli inny ruch w międzyczasie ten UTXO wydał, podpis jest już nieważny —
-    // sygnalizujemy STALE, a przeglądarka po prostu buduje i podpisuje od nowa.
+    // The player signed the digest of a transaction built on ONE SPECIFIC wallet UTXO.
+    // If another move spent that UTXO meanwhile, the signature is already void — we
+    // signal STALE and the browser simply rebuilds and signs again.
     const w = await walletUtxo();
     if (p.job.wallet.txid !== w.txid || p.job.wallet.index !== w.index) throw new Error("STALE");
     const r = runBuilder({ ...p.job, playerSig: b.sig });
@@ -465,15 +465,15 @@ const routes = {
   }),
 };
 
-// timeout może wywołać każdy — bez podpisu gracza
+// anyone can trigger a timeout — no player signature needed
 routes["POST /api/move/timeout"] = async (b) => serialize(async () => {
   const d = db();
   const t = d.tables.find((x) => x.id === b.id);
   if (!t) throw new Error("no such table");
   if (t.state.phase !== 1) throw new Error("the game is not running");
-  // Kontrakt porównuje locktime (u nas: 20 min wstecz, bo mediana czasu bloków
-  // wlecze się za zegarem) z deadline — więc sieć uzna timeout dopiero ~20 min
-  // po terminie. Bez tej bramki błąd skryptu byłby mylący.
+  // The contract compares the locktime (ours: 20 min back, because median block time
+  // lags the wall clock) with the deadline — so the network only accepts a timeout
+  // ~20 min after it expires. Without this gate the script error would be confusing.
   if (Date.now() - 1_200_000 < t.state.deadline) {
     if (Date.now() < t.state.deadline) throw new Error("the move deadline has not passed yet");
     const min = Math.ceil((t.state.deadline + 1_200_000 - Date.now()) / 60_000);
@@ -493,8 +493,8 @@ routes["POST /api/move/timeout"] = async (b) => serialize(async () => {
   return { ok: true, txid, state: next };
 });
 
-// POTWIERDZENIE strzału rywala — jedno żądanie, bez rundy podpisywania,
-// bo entry `answer` jest keyless. Wysyła je przeglądarka OBROŃCY automatycznie.
+// CONFIRMING the opponent's shot — a single request with no signing round, because
+// the `answer` entry is keyless. The DEFENDER's browser sends it automatically.
 routes["POST /api/move/answer"] = async (b) => serialize(async () => {
   const d = db();
   const t = d.tables.find((x) => x.id === b.id);
@@ -513,41 +513,41 @@ routes["POST /api/move/answer"] = async (b) => serialize(async () => {
   return { ok: true, txid: r.txid, state: r.state };
 });
 
-// STRAŻNIK TERMINÓW. Gracz, który czeka na odpowiedź porzuconej partii, nie
-// powinien musieć nic klikać — po upływie terminu (plus zapas na medianę czasu
-// bloków) sami zgłaszamy przekroczenie i partia kończy się jego zwycięstwem.
-// Przy okazji zamyka to wyścig opisany w audycie: kto pierwszy zgłosi, ten wygrywa.
+// DEADLINE WATCHDOG. A player waiting on an abandoned game should not have to click
+// anything — once the deadline passes (plus room for median block time) we claim
+// the timeout ourselves and the game ends in their favour.
+// It also closes the race described in the audit: first to claim wins.
 setInterval(async () => {
   let tables;
   try { tables = db().tables; } catch { return; }
-  const netNow = Date.now() - 1_200_000;   // ta sama skala co lockTime i deadline
-  // 1) porzucone partie — rozstrzygnij po terminie
+  const netNow = Date.now() - 1_200_000;   // same scale as lockTime and deadline
+  // 1) abandoned games — settle them once the deadline passes
   for (const t of tables.filter((t) => t.state.phase === 1 && t.state.deadline > 0 && netNow >= t.state.deadline + 30_000)) {
     try {
       const r = await routes["POST /api/move/timeout"]({ id: t.id });
-      log(`strażnik: ${t.id} rozstrzygnięty po terminie → ${r.txid.slice(0, 12)}`);
-    } catch (e) { log(`strażnik ${t.id}:`, (e.message ?? e).toString().slice(0, 80)); }
+      log(`watchtower: ${t.id} settled on timeout → ${r.txid.slice(0, 12)}`);
+    } catch (e) { log(`watchtower ${t.id}:`, (e.message ?? e).toString().slice(0, 80)); }
   }
-  // 2) wolne stoły, do których nikt nigdy nie usiadł — kontrakt pozwala je
-  //    zamknąć po STALE_MS od założenia (w fazie WAITING `deadline` to znacznik
-  //    utworzenia), więc nie zostają na łańcuchu na zawsze
+  // 2) open tables nobody ever sat down at — the contract lets us close them
+  //    STALE_MS after creation (in the WAITING phase `deadline` is the creation
+  //    marker), so they do not stay on-chain forever
   for (const t of tables.filter((t) => t.state.phase === 0 && !t.rescued && netNow >= t.state.deadline + STALE_MS)) {
     try {
       const r = await routes["POST /api/table/rescue"]({ id: t.id });
-      log(`strażnik: wolny stół ${t.id} wygasł i został zamknięty → ${r.txid.slice(0, 12)}`);
-    } catch (e) { log(`strażnik (wygasły) ${t.id}:`, (e.message ?? e).toString().slice(0, 80)); }
+      log(`watchtower: open table ${t.id} expired and was closed → ${r.txid.slice(0, 12)}`);
+    } catch (e) { log(`watchtower (expired) ${t.id}:`, (e.message ?? e).toString().slice(0, 80)); }
   }
-  // 3) rozegrane stoły — zamknij kowenant i odzyskaj wartość, żeby nie wisiał
+  // 3) finished tables — close the covenant and reclaim its value
   for (const t of tables.filter((t) => t.state.phase === 2 && !t.rescued && Date.now() - (t.log[t.log.length - 1]?.at ?? 0) > 60_000)) {
     try {
       const r = await routes["POST /api/table/rescue"]({ id: t.id });
-      log(`strażnik: ${t.id} zamknięty, wartość odzyskana → ${r.txid.slice(0, 12)}`);
-    } catch (e) { log(`strażnik (zamknięcie) ${t.id}:`, (e.message ?? e).toString().slice(0, 80)); }
+      log(`watchtower: ${t.id} closed, deposit reclaimed → ${r.txid.slice(0, 12)}`);
+    } catch (e) { log(`watchtower (close) ${t.id}:`, (e.message ?? e).toString().slice(0, 80)); }
   }
 }, 60_000);
 
-// Odzyskanie wartości stołu (v2). Keyless jak timeout — kowenant znika, 0.6 TKAS
-// wraca do portfela operatora zamiast palić się na zawsze.
+// Reclaiming the table value (v2). Keyless like timeout — the covenant disappears
+// and 0.6 TKAS returns to the operator wallet instead of burning forever.
 routes["POST /api/table/rescue"] = async (b) => serialize(async () => {
   const d = db();
   const t = d.tables.find((x) => x.id === b.id);
@@ -589,7 +589,7 @@ http.createServer(async (req, res) => {
       const out = await handler(req.method === "POST" ? body : Object.fromEntries(url.searchParams));
       res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(out));
     } catch (e) {
-      log("BŁĄD", key, (e.message ?? e).toString().slice(0, 160));
+      log("ERROR", key, (e.message ?? e).toString().slice(0, 160));
       res.writeHead(400, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: (e.message ?? e).toString().slice(0, 300) }));
     }
@@ -609,17 +609,16 @@ http.createServer(async (req, res) => {
     });
     return;
   }
-  // pliki statyczne
   let p = normalize(url.pathname === "/" ? "/index.html" : url.pathname).replace(/^(\.\.[/\\])+/, "");
   const file = join(`${HERE}/public`, p);
-  if (!file.startsWith(`${HERE}/public`) || !existsSync(file)) { res.writeHead(404); res.end("nie ma"); return; }
+  if (!file.startsWith(`${HERE}/public`) || !existsSync(file)) { res.writeHead(404); res.end("not found"); return; }
   res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream", "cache-control": "no-store" });
   res.end(readFileSync(file));
 }).listen(PORT, "127.0.0.1", async () => {
-  log(`Statki: http://127.0.0.1:${PORT} (sieć ${NETWORK})`);
-  // rozgrzewka: połączenie z węzłem i UTXO portfela w tle, żeby PIERWSZY gracz
-  // nie płacił kilkunastu sekund za zimny start
+  log(`Battleship: http://127.0.0.1:${PORT} (network ${NETWORK})`);
+  // warm-up: connect to a node and fetch the wallet UTXO in the background so the
+  // FIRST player does not pay a dozen seconds for a cold start
   try { const t = Date.now(); await walletUtxo();
-    log(`portfel gotowy w ${((Date.now() - t) / 1000).toFixed(1)}s: ${(walletTip.value / 1e8).toFixed(2)} TKAS`); }
-  catch (e) { log("rozgrzewka nieudana:", (e.message ?? e).toString().slice(0, 80)); }
+    log(`wallet ready in ${((Date.now() - t) / 1000).toFixed(1)}s: ${(walletTip.value / 1e8).toFixed(2)} TKAS`); }
+  catch (e) { log("warm-up failed:", (e.message ?? e).toString().slice(0, 80)); }
 });

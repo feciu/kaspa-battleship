@@ -1,6 +1,7 @@
-// Builder transakcji dla Statków: tryb `prepare` zwraca skrót do podpisu przez
-// przeglądarkę gracza, tryb `finalize` skleja gotową transakcję z jego podpisem.
-// Serwer stolika nigdy nie ma klucza gracza — może co najwyżej odmówić obsługi.
+// Transaction builder for Battleship: `prepare` mode returns the digest for the
+// player's browser to sign, `finalize` mode assembles the final transaction with
+// that signature. The table server never holds a player's key — the most it can
+// do is refuse service.
 use argent::build_file;
 use argent_runtime::{ArgValue, ArtifactValue, EntryCall, InputSigScript, TxBuilder, TxContext, args, state};
 use argent_template::{DemoResult, sign_input};
@@ -12,9 +13,9 @@ use secp256k1::{Keypair, Secp256k1, SecretKey};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc, str::FromStr};
 
 const C_STORAGE: u64 = 1_000_000_000_000;
-/// Ruchy gry mają STAŁĄ opłatę: gracz podpisuje skrót transakcji, a skrót
-/// zależy od reszty, więc faza `prepare` i `finalize` muszą policzyć tę samą
-/// kwotę. Na testnecie zapas jest darmowy, a determinizm bezcenny.
+/// Game moves carry a FIXED fee: the player signs a transaction digest, and the
+/// digest depends on the change output, so the `prepare` and `finalize` phases
+/// must arrive at the same amount. On testnet headroom is free, determinism is not.
 const MOVE_FEE: u64 = 8_000_000;
 fn hx(s: &serde_json::Value) -> Vec<u8> { hex::decode(s.as_str().unwrap()).unwrap() }
 
@@ -72,9 +73,9 @@ fn main() -> DemoResult<()> {
     let table_value: u64 = job["tableValue"].as_u64().unwrap_or(60_000_000);
     let lock = job["lockTime"].as_i64().unwrap_or(0);
 
-    // skrót do podpisu przez gracza, przechwycony podczas budowy
+    // the digest for the player to sign, captured while building
     let sighash: Rc<RefCell<Option<Vec<u8>>>> = Rc::new(RefCell::new(None));
-    // podpis gracza (finalize) albo atrapa właściwej długości (prepare)
+    // the player's signature (finalize) or a dummy of the right length (prepare)
     let psig: Vec<u8> = if prepare { vec![0u8; 65] }
         else { job["playerSig"].as_str().map(|h| hex::decode(h).unwrap()).unwrap_or_default() };
 
@@ -102,14 +103,14 @@ fn main() -> DemoResult<()> {
         return Ok(());
     }
 
-    // wejścia aktorowe: join / play / timeout / rescue
+    // actor inputs: join / play / timeout / rescue
     let before = gstate(&job["state"]);
     let cov = kaspa_consensus_core::Hash::from_str(job["covenantId"].as_str().unwrap())?;
     let t_out = TransactionOutpoint { transaction_id: TransactionId::from_str(job["outpoint"]["txid"].as_str().unwrap())?, index: job["outpoint"]["index"].as_u64().unwrap() as u32 };
 
-    // rescue: `emits none` — kowenant znika, a wartość stołu wraca do portfela.
-    // Brak wyjścia aktorowego i brak podpisu (entry jest keyless), więc nie ma
-    // też stanu następnego — dlatego ta gałąź stoi przed odczytem `nextState`.
+    // rescue: `emits none` — the covenant disappears and the table value returns to
+    // the wallet. There is no actor output and no signature (the entry is keyless),
+    // so there is no next state either — hence this branch sits before `nextState`.
     if mode == "rescue" {
         let tu = b.covenant_utxo("Game", before.clone(), table_value, 0, false, Some(cov))?;
         let (wo, wu, ws) = wal_input(wal_out, wal_val);
@@ -131,8 +132,8 @@ fn main() -> DemoResult<()> {
         let (mode2, p2, sh2) = (mode.to_string(), p.clone(), sh.clone());
         match mode {
             "timeout" => EntryCall::new("timeout"),
-            // POTWIERDZENIE jest keyless — dowód Merkle'a uwierzytelnia sam siebie,
-            // więc nie ma tu podpisu ani skrótu do podpisania.
+            // The CONFIRMATION is keyless — the Merkle proof authenticates itself,
+            // so there is neither a signature nor a digest to sign here.
             "answer" => EntryCall::new("answer").args_with(move |_tx, _idx| {
                 let pr: Vec<ArgValue> = (0..7).map(|i| ArgValue::from(hx(&p2["proof"][i]))).collect();
                 let mut a = args![p2["answer"].as_i64().unwrap(), hx(&p2["leafSalt"])];
@@ -140,7 +141,7 @@ fn main() -> DemoResult<()> {
                 a
             }),
             _ => EntryCall::new(if mode2 == "join" { "join" } else { "shoot" }).args_with(move |tx, idx| {
-                // ten sam skrót, który podpisze przeglądarka (podpisy nie wchodzą do sighash)
+                // the same digest the browser will sign (signatures stay out of the sighash)
                 let reused = SigHashReusedValuesUnsync::new();
                 let h = calc_schnorr_signature_hash(&tx.as_verifiable(), idx, SIG_HASH_ALL, &reused);
                 *sh2.borrow_mut() = Some(h.as_bytes().to_vec());
@@ -164,21 +165,21 @@ fn main() -> DemoResult<()> {
             .output(wspk.clone(), None, wal_val - fee))?) };
 
     if prepare {
-        // budowa z atrapą podpisu zawiedzie na skrypcie, ale skrót jest już policzony
+        // building with a dummy signature fails in the script, but the digest is computed
         let _ = mk(MOVE_FEE, psig.clone());
-        let h = sighash.borrow().clone().expect("sighash nie policzony");
+        let h = sighash.borrow().clone().expect("sighash was not computed");
         println!("{}", serde_json::json!({ "sighash": hex::encode(h) }));
         return Ok(());
     }
 
     let fee = MOVE_FEE;
     let tx = mk(fee, psig)?;
-    // Stała opłata jest wymuszona determinizmem sighash, ale musi z zapasem
-    // pokrywać stawkę sieci — stan v2 jest większy niż v1, więc sprawdzamy to
-    // jawnie zamiast dowiadywać się z odrzucenia przez węzeł.
+    // The fixed fee is forced by sighash determinism, but it must cover the network
+    // rate with room to spare — v2 state is larger than v1, so we check it here
+    // explicitly instead of learning about it from a node rejection.
     let need = fee_for(&tx);
     if need > MOVE_FEE {
-        return Err(format!("MOVE_FEE={MOVE_FEE} za niskie, sieć wymaga {need}").into());
+        return Err(format!("MOVE_FEE={MOVE_FEE} is too low, the network requires {need}").into());
     }
     println!("{}", serde_json::json!({ "tx": tx_json(&tx, fee),
         "outpoint": { "txid": tx.id().to_string(), "index": 0 },

@@ -12,7 +12,7 @@
   :root {
     --kas:#49ceb5; --kas-dim:#2b7d6d; --kas-glow:rgba(73,206,181,.35);
     --bg:#0a0a0f; --panel:rgba(15,20,26,.72); --line:rgba(73,206,181,.16);
-    /* --sea musi być WYRAŹNIE jaśniejsze od tła strony, inaczej plansza znika */
+    /* --sea must be CLEARLY lighter than the page background, or the board vanishes */
     --gold:#ffd700; --txt:#dfe6ee; --dim:#93a0ad; --sea:#33505f; --hit:#e0474f; --miss:#3d4d61;
   }
   * { box-sizing:border-box; }
@@ -51,7 +51,7 @@
   .row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
   .between { justify-content:space-between; }
 
-  /* pasek statusu gry — po ludzku, ponad wszystkim */
+  /* game status bar — plain language, above everything else */
   .banner { display:flex; align-items:center; gap:14px; padding:16px 20px; border-radius:14px;
             border:1px solid var(--line); background:var(--panel); margin-bottom:16px; }
   .banner .big { font-family:'Press Start 2P',monospace; font-size:13px; line-height:1.5; }
@@ -65,12 +65,11 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   .banner .score { font-family:'Press Start 2P',monospace; font-size:15px; color:var(--kas); margin-left:auto; }
 
-  /* plansze */
   .boards { display:flex; gap:22px; flex-wrap:nowrap; justify-content:center; }
   .bx h3 { font-family:'Roboto Mono',monospace; font-size:11px; letter-spacing:.12em; text-transform:uppercase;
            color:var(--dim); margin:0 0 10px; text-align:center; }
   .bx.active h3 { color:var(--gold); }
-  /* czy rywal siedzi przy stole — bez niego nikt nie potwierdzi Twojego strzału */
+  /* whether the opponent is at the table — nobody else can confirm your shot */
   .pres { display:inline-flex; align-items:center; gap:5px; margin-left:7px; padding:2px 7px; border-radius:99px;
           font-size:9.5px; letter-spacing:.06em; border:1px solid; }
   .pres::before { content:''; width:6px; height:6px; border-radius:50%; }
@@ -100,7 +99,7 @@
                      color:#fff; font-size:15px; font-weight:700; }
   .cell.miss { background:var(--miss); }
   .cell.miss::after { content:''; position:absolute; inset:36%; border-radius:50%; background:#8fa3ba; opacity:.75; }
-  /* wynik MOJEGO strzału odsłonięty przed ruchem rywala */
+  /* the result of MY shot, revealed before their move */
   .cell.justrevealed { animation:pop .55s ease-out; z-index:1; }
   @keyframes pop { 0%{transform:scale(1)} 45%{transform:scale(1.28)} 100%{transform:scale(1)} }
   .cell.wait { background:#1a2430; border-color:var(--gold); box-shadow:0 0 10px rgba(255,215,0,.35); }
@@ -111,7 +110,7 @@
   .cell.sending { background:repeating-linear-gradient(45deg,#2a3646,#2a3646 4px,#1a2430 4px,#1a2430 8px);
                   border-color:var(--gold); animation:pulse 1s infinite; }
   .cell.lastshot { animation:ping .6s ease-out; }
-  /* pasek statusu jako bohater ekranu */
+  /* status bar as the hero of the screen */
   .banner.big-hero { padding:22px 22px; }
   .banner.big-hero .big { font-size:15px; }
   .metaline { font-family:'Roboto Mono',monospace; font-size:10.5px; color:#5a6572; text-align:center; margin:2px 0 14px; }
@@ -125,10 +124,10 @@
   .ship-tok.now { border-color:var(--gold); background:rgba(255,215,0,.08); }
   .ship-tok i { width:9px; height:9px; background:var(--kas-dim); border-radius:2px; display:inline-block; }
 
-  /* szeroka tabela przewija się SAMA — strona nigdy nie jedzie w bok */
+  /* a wide table scrolls ITSELF — the page never scrolls sideways */
   .tblwrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   @media (max-width:520px) {
-    table.tbl th:nth-child(4), table.tbl td:nth-child(4) { display:none; }  /* „ruchów" — na telefonie zbędne */
+    table.tbl th:nth-child(4), table.tbl td:nth-child(4) { display:none; }  /* "moves" — not needed on a phone */
     table.tbl th, table.tbl td { padding:8px 5px; }
     table.tbl .mono { font-size:11px; }
     .tblwrap button { padding:9px 11px; font-size:11px; }
@@ -159,11 +158,11 @@
           background:#16232f; color:var(--txt); border:1px solid var(--kas-dim); border-radius:99px; padding:4px 11px; }
   #nick::placeholder { color:#63707d; }
   #nick:focus { outline:none; border-color:var(--kas); box-shadow:0 0 10px var(--kas-glow); }
-  /* ekran po partii — jasno mówi, co się właśnie stało i co można zrobić dalej */
+  /* post-game screen — says plainly what just happened and what can be done next */
   .endcard { border-color:rgba(73,206,181,.34); }
   .endline { font-family:'Press Start 2P',monospace; font-size:12px; line-height:1.8; color:var(--txt); margin-bottom:10px; }
   .endline b { color:var(--kas); }
-  /* pełny zapis partii — żeby każdy mógł sprawdzić ją sam na eksploratorze */
+  /* the full game record — so anyone can check it themselves in an explorer */
   .txlist { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
   .txlist summary { color:var(--kas); font-family:'Roboto Mono',monospace; font-size:11.5px; cursor:pointer; }
   .txlist ol { max-height:260px; overflow-y:auto; margin:10px 0 0; padding-left:26px;
@@ -174,7 +173,7 @@
              color:var(--kas); border:1px solid var(--kas-dim); border-radius:9px; padding:11px 18px; }
   select { font-family:'Roboto Mono',monospace; font-size:12px; background:#16232f; color:var(--txt);
            border:1px solid var(--kas-dim); border-radius:8px; padding:8px 9px; cursor:pointer; }
-  /* uczciwa nota o granicach demo — dostępna, ale nie krzycząca */
+  /* honest note about the demo's limits — available, but not shouting */
   .honest { margin:-10px 0 22px; max-width:70ch; border-left:2px solid var(--kas-dim); padding-left:14px; }
   .honest summary { color:var(--kas); font-family:'Roboto Mono',monospace; font-size:11.5px; letter-spacing:.04em;
                     cursor:pointer; padding:4px 0; }
@@ -248,16 +247,16 @@ $("#cbar").onclick = () => term.classList.toggle("collapsed");
 function log(msg, cls = "t") {
   const d = document.createElement("div"); d.className = cls;
   d.innerHTML = `<span class="ts">${new Date().toLocaleTimeString()}</span> ${msg}`;
-  term.prepend(d);   // najnowszy wpis na górze
+  term.prepend(d);   // newest entry on top
   while (term.children.length > 160) term.removeChild(term.lastChild);
 }
-// Nick jest czysto kosmetyczny i wpisuje go dowolny gracz, a konsola renderuje
-// przez innerHTML — więc ZAWSZE przepuszczamy go przez esc().
+// A nickname is purely cosmetic, any player types their own, and the console
+// renders through innerHTML — so it ALWAYS goes through esc().
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let myNick = localStorage.getItem("bs_nick") || "";
 const txLink = (id) => `<a href="${EXPLORER}${id}" target="_blank" rel="noopener">${id.slice(0, 18)}…</a>`;
 
-// ── tożsamość: jeden klucz na przeglądarkę ────────────────────────────────
+// ── identity: one key per browser ─────────────────────────────────────────
 let priv, xonly, myId;
 {
   let keyHex = localStorage.getItem("bs_key");
@@ -284,10 +283,10 @@ $("#reset").onclick = () => {
   location.reload();
 };
 
-// ── flota, drzewo Merkle'a ────────────────────────────────────────────────
-const N = 5, CELLS = 25;                    // plansza 5x5 — mieści się na telefonie, partia ~minutę
+// ── fleet, Merkle tree ────────────────────────────────────────────────────
+const N = 5, CELLS = 25;                    // 5x5 board — fits on a phone, a game takes about a minute
 const FLEET = [{ n: "Cruiser", len: 3 }, { n: "Destroyer", len: 2 },
-  { n: "Cutter", len: 1 }, { n: "Cutter", len: 1 }];   // 7 pól
+  { n: "Cutter", len: 1 }, { n: "Cutter", len: 1 }];   // 7 squares
 const around = (i) => { const r = (i / N) | 0, c = i % N, out = [];
   for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
     const nr = r + dr, nc = c + dc; if (nr >= 0 && nr < N && nc >= 0 && nc < N) out.push(nr * N + nc); } return out; };
@@ -297,7 +296,7 @@ function shipCells(head, len, horiz) {
     if (rr >= N || cc >= N) return null; out.push(rr * N + cc); } return out;
 }
 function canPlace(cells, idx) { return idx.every((i) => cells[i] === 0 && around(i).every((a) => !idx.includes(a) ? cells[a] === 0 : true)); }
-// losujemy do skutku: niepełna flota = rywal nie mógłby wygrać
+// retry until it fits: an incomplete fleet would leave the opponent unable to win
 function randomBoard() {
   for (let attempt = 0; attempt < 500; attempt++) {
     const b = tryRandomBoard();
@@ -322,7 +321,7 @@ function buildTree(cells, master) {
   return { salts, nodes, root: hex(nodes[7][0]) };
 }
 const proofFor = (t, i) => [...Array(7)].map((_, l) => hex(t.nodes[l][(i >> l) ^ 1]));
-// plansza zapisana pod tożsamością gracza — dwaj gracze w jednym oknie mają osobne
+// the board is stored under the player's identity — two players in one browser stay apart
 const bkey = (id) => `bs_board_${id}_${myId.slice(0, 8)}`;
 const saveBoard = (id, cells, master) => localStorage.setItem(bkey(id), JSON.stringify({ cells, master }));
 const loadBoard = (id) => {
@@ -334,7 +333,7 @@ const coord = (i) => "ABCDE"[i % N] + (((i / N) | 0) + 1);
 const nickOrId = (nick, id) => esc(nick || (id ? id.slice(0, 8) : "—"));
 const oppName = (table, iAmA) => table.vsBot ? "BOT"
   : nickOrId(iAmA ? table.nick?.b : table.nick?.a, iAmA ? table.state.b_id : table.state.a_id);
-// ms -> klucz z listy okien czasowych (do „zagraj jeszcze raz" na tych samych zasadach)
+// ms -> key from the time-window list (for "play again" on the same terms)
 const ago = (t) => { const m = Math.floor((Date.now() - t) / 60000);
   return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.floor(m / 60) + " h ago" : Math.floor(m / 1440) + " d ago"; };
 const winKey = (ms) => ({ 300000: "5m", 600000: "10m", 900000: "15m", 3600000: "1h", 54000000: "15h" })[ms] ?? "24h";
@@ -342,7 +341,7 @@ const winKey = (ms) => ({ 300000: "5m", 600000: "10m", 900000: "15m", 3600000: "
 // ── API + live ────────────────────────────────────────────────────────────
 async function api(path, body) {
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 50000);   // nic nie wisi w nieskończoność
+  const timer = setTimeout(() => ctl.abort(), 50000);   // nothing hangs forever
   try {
     const r = await fetch(BASE + path, { signal: ctl.signal, ...(body
       ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
@@ -369,15 +368,15 @@ async function signedMove(id, mode, params, nick) {
     }
   }
 }
-// jeden strumień zdarzeń na całą stronę; widoki się na niego podpinają
+// one event stream for the whole page; the views hook into it
 let onEvent = null;
 (function connectSSE() {
   const es = new EventSource(BASE + "/api/events?me=" + myId + "&nick=" + encodeURIComponent(myNick));
   es.onmessage = (e) => { try { const d = JSON.parse(e.data); if (onEvent) onEvent(d.id); } catch {} };
-  es.onerror = () => { /* EventSource sam wznawia połączenie */ };
+  es.onerror = () => { /* EventSource reconnects on its own */ };
 })();
 
-// ── widoki ────────────────────────────────────────────────────────────────
+// ── views ─────────────────────────────────────────────────────────────────
 let current = null, refreshTimer = null;
 
 const cellEl = (cls, onclick, over) => {
@@ -448,12 +447,12 @@ function sect(title, rows, kind) {
   return `<div class="panel"><div class="ptitle">${title}</div><div class="tblwrap">${body}</div></div>`;
 }
 
-// ── rozstawianie: statek po statku, z podglądem i cofaniem ────────────────
+// ── placement: ship by ship, with preview and undo ────────────────────────
 function showPlacement(joinId, vsBot = false, win = "24h") {
   current = "place"; onEvent = null; clearInterval(refreshTimer);
   let cells = new Array(CELLS).fill(0);
   let horiz = true, placed = 0;
-  const history = [];   // stos pól kolejnych statków (do cofania)
+  const history = [];   // stack of squares per placed ship (for undo)
 
   const submit = async () => {
     const g = $("#go"); if (g) { g.disabled = true; g.textContent = "⏳ creating table on-chain…"; }
@@ -518,19 +517,19 @@ function showPlacement(joinId, vsBot = false, win = "24h") {
 
 async function showGame(id) {
   current = id;
-  history.replaceState(null, "", "#" + id);   // link prosto do partii
+  history.replaceState(null, "", "#" + id);   // deep link straight to this game
  let busy = false, busySince = 0, sending = -1, lastMoves = -1, lastLogLen = 0;
-  const shotsMine = new Set();   // moje dotychczasowe strzały — drugi raz w to samo pole nie wolno
-  let shownAnswer = -1, revealUntil = 0, revealTimer = null;   // chwila „trafiłem/pudło" przed ruchem rywala
-  let overdue = false, answering = false;                       // rywal przekroczył termin / trwa potwierdzanie
+  const shotsMine = new Set();   // my shots so far — the same square may not be fired at twice
+  let shownAnswer = -1, revealUntil = 0, revealTimer = null;   // the "hit/miss" beat before their move
+  let overdue = false, answering = false;                       // opponent out of time / confirmation in flight
   const dur = (ms) => { const m = Math.floor(ms / 60000); return m < 1 ? `${Math.floor(ms / 1000)} s` : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
-  let drawGen = 0;   // rośnie przy każdej akcji gracza — odcina spóźnione rysowania
+  let drawGen = 0;   // bumped on every player action — cancels late redraws
 
-  // natychmiastowa reakcja: ustaw pasek statusu bez czekania na serwer
+  // instant feedback: set the status bar without waiting for the server
   const setBanner = (cls, html) => { const b = $("#gbanner"); if (b) { b.className = "banner big-hero " + cls; b.innerHTML = html; } };
 
-  // Nakładka „mój strzał w drodze" — odtwarzana PO każdym rysowaniu ekranu, więc
-  // żadne spóźnione odświeżenie nie może jej skasować ani cofnąć komunikatu.
+  // The "my shot is in flight" overlay is re-applied AFTER every redraw, so no late
+  // refresh can wipe it or roll the message back.
   const applyPending = () => {
     if (sending < 0) return;
     const oc = $("#opp")?.querySelectorAll(".cell")[sending];
@@ -538,9 +537,9 @@ async function showGame(id) {
     setBanner("", `<div class="spin"></div><span class="big">📡 Your shot at ${coord(sending)} — opponent confirming…</span>`);
   };
 
-  // Potwierdzenie strzału rywala wysyła MOJA przeglądarka automatycznie — nie
-  // wymaga podpisu ani mojej decyzji, więc rywal poznaje wynik od razu, nie
-  // czekając, aż wymyślę własny ruch.
+  // MY browser sends the confirmation of their shot automatically — it needs no
+  // signature and no decision from me, so the opponent learns the result at once,
+  // without waiting for me to think up my own move.
   const sendAnswer = async (cellShot, mine) => {
     if (busy || answering) return;
     answering = true; busy = true; busySince = Date.now(); drawGen++;
@@ -561,7 +560,7 @@ async function showGame(id) {
     if (busy) return;
     if (shotsMine.has(cell)) { log(`square ${coord(cell)} already fired at — pick another`, "warn"); return; }
     busy = true; busySince = Date.now(); sending = cell; drawGen++;
-    // 1) POKAŻ strzał od razu — zanim transakcja dojdzie
+    // 1) SHOW the shot immediately — before the transaction lands
     const oc = $("#opp") ? $("#opp").querySelectorAll(".cell")[cell] : null;
     if (oc) oc.className = "cell sending";
     setBanner("", `<div class="spin"></div><span class="big">📡 Your shot at ${coord(cell)} — opponent confirming…</span>`);
@@ -578,36 +577,36 @@ async function showGame(id) {
   };
 
   const draw = async () => {
-    const gen = drawGen;          // pokolenie, w którym ruszyło to rysowanie
+    const gen = drawGen;          // generation this redraw started in
     let table;
     try { ({ table } = await api("/api/table?id=" + id + "&me=" + myId + "&nick=" + encodeURIComponent(myNick))); }
     catch (e) { if (/no such table/.test(e.message)) { showTables(); return; } throw e; }
-    // dane pobrane przed akcją gracza (albo w jej trakcie) są już nieaktualne —
-    // nadpisanie nimi ekranu kasowałoby podświetlenie strzału i cofało komunikat
+    // data fetched before (or during) a player action is already stale — redrawing
+    // from it would wipe the shot highlight and roll the message back
     if (gen !== drawGen || busy) return;
     const st = table.state, mine = loadBoard(id);
     const iAmA = st.a_id === myId, iAmB = st.b_id === myId, spectator = !iAmA && !iAmB;
     const meTurn = (st.turn === 0 && iAmA) || (st.turn === 1 && iAmB);
     const myHits = iAmA ? st.hits_a : st.hits_b, oppHits = iAmA ? st.hits_b : st.hits_a;
-    // v3: strzał i potwierdzenie to OSOBNE transakcje. Kolejność jest ścisła
-    // (strzał k → potwierdzenie k → strzał k+1), więc k-te potwierdzenie
-    // odpowiada k-temu strzałowi. Strzały alternują A, B, A, B…
+    // v3: the shot and its confirmation are SEPARATE transactions. The order is
+    // strict (shot k → confirmation k → shot k+1), so the k-th confirmation belongs
+    // to the k-th shot. Shots alternate A, B, A, B…
     const shoots = table.log.filter((l) => l.kind === "shoot");
     const answers = table.log.filter((l) => l.kind === "answer");
     const plays = shoots;
     const myShots = [], myAnswers = [], oppShots = [], oppAnswers = [];
     shoots.forEach((l, g) => {
-      const shooterIsA = g % 2 === 0;               // twórca stołu zawsze strzela pierwszy
-      const ans = answers[g]?.answer;               // undefined = czeka na potwierdzenie
+      const shooterIsA = g % 2 === 0;               // the table host always shoots first
+      const ans = answers[g]?.answer;               // undefined = awaiting confirmation
       if (spectator ? shooterIsA : shooterIsA === iAmA) { myShots.push(l.cell); myAnswers.push(ans); }
       else { oppShots.push(l.cell); oppAnswers.push(ans); }
     });
     shotsMine.clear(); myShots.forEach((c) => shotsMine.add(c));
     const isNewMove = lastMoves !== -1 && plays.length !== lastMoves;
 
-    // Rywal odpowiada na mój strzał i strzela SAM w tej samej transakcji — obie
-    // wiadomości docierają w jednej chwili. Rozdzielamy je w czasie: najpierw
-    // przez moment sam wynik mojego strzału, dopiero potem jego ruch.
+    // The opponent confirms my shot and fires back in the SAME transaction, so both
+    // messages arrive at the same instant. We separate them in time: first the
+    // result of my own shot for a moment, only then their move.
     const lastShotIdx = myShots.length - 1;
     if (isNewMove && lastShotIdx >= 0 && myAnswers[lastShotIdx] !== undefined && shownAnswer !== lastShotIdx) {
       shownAnswer = lastShotIdx;
@@ -619,11 +618,11 @@ async function showGame(id) {
     const revCell = revealing ? myShots[lastShotIdx] : -1;
     const revHit = revealing && myAnswers[lastShotIdx] === 1;
 
-    // opisz w konsoli świeże ruchy rywala (przy wejściu na stół bez replaya historii)
+    // log their fresh moves in the console (entering a table replays no history)
     if (lastMoves === -1) lastLogLen = table.log.length;
     if (table.log.length > lastLogLen) {
       table.log.slice(lastLogLen).forEach((l) => {
-        if (l.by === myId) return;                       // swoje już opisaliśmy na bieżąco
+        if (l.by === myId) return;                       // our own moves were logged as they happened
         const kto = table.vsBot ? "🤖 BOT" : "⚔ " + oppName(table, iAmA);
         if (l.kind === "join") log(`${kto} sat down and froze their board: ${txLink(l.txid)}`, "warn");
         else if (l.kind === "answer")
@@ -643,32 +642,32 @@ async function showGame(id) {
       else { cls = iWon ? "you" : ""; text = iWon ? "🎉 VICTORY!" : "Defeated — better luck next time"; }
     } else if (spectator) { cls = "wait"; icon = '<div class="spin"></div>'; text = "Game in progress…"; }
     else {
-      // KAŻDY komunikat mówi wprost, CZYJ to strzał — inaczej nie da się odróżnić
-      // własnego wyniku od ruchu rywala. Pętla tury: mój strzał → jego wynik →
-      // czekam → jego strzał → mój wynik → mój ruch.
+      // EVERY message says outright WHOSE shot it is — otherwise you cannot tell
+      // your own result from their move. Turn loop: my shot → their result → wait
+      // → their shot → my result → my move.
       const oppHere = iAmA ? table.online?.b : table.online?.a;
       const mk = myShots.length - 1, ok = oppShots.length - 1;
-      const myAns = mk >= 0 ? myAnswers[mk] : undefined;      // wynik MOJEGO strzału
-      const oppAns = ok >= 0 ? oppAnswers[ok] : undefined;    // co zrobił strzał RYWALA
+      const myAns = mk >= 0 ? myAnswers[mk] : undefined;      // the result of MY shot
+      const oppAns = ok >= 0 ? oppAnswers[ok] : undefined;    // what THEIR shot did
       const mineLast = [...table.log].reverse().find((l) => l.kind === "shoot" && l.by === myId);
       const waitMs = mineLast ? Date.now() - mineLast.at : 0;
-      // `deadline` żyje w tej samej, cofniętej o 20 min skali co lockTime ruchów
-      // (węzeł porównuje z MEDIANĄ czasu bloków). Porównywanie go wprost z zegarem
-      // ściennym uznawałoby termin za przekroczony 20 minut za wcześnie.
+      // `deadline` lives on the same 20-min-backdated scale as the move locktimes
+      // (the node compares against the MEDIAN block time). Comparing it with the
+      // wall clock would call the deadline missed 20 minutes too early.
       const netNow = Date.now() - 1_200_000;
       overdue = !meTurn && st.deadline > 0 && netNow > st.deadline;
 
       if (revealing) {
-        // Wynik MOJEGO strzału dostaje własną chwilę — bez tego szybki rywal
-        // (albo bot) przeskakuje od razu do swojego ruchu i własnego wyniku
-        // w ogóle się nie widzi.
+        // The result of MY shot gets its own moment — without it a fast opponent
+        // (or the bot) jumps straight to their move and you never get to see your
+        // own result at all.
         cls = revHit ? "you" : "wait";
         text = revHit ? `🔥 Your shot at ${coord(revCell)} — HIT! · waiting for their move…`
                       : `💧 Your shot at ${coord(revCell)} — miss. · waiting for their move…`;
       }
       else if (overdue) { cls = ""; text = `⌛ Opponent ran out of time — you can end the game and win`; }
       else if (meTurn && st.pending !== 100) {
-        // rywal właśnie strzelił; moja przeglądarka to potwierdza
+        // they have just fired; my browser confirms it
         cls = ""; icon = '<div class="spin"></div>';
         text = `🛡 They fired at ${coord(st.pending)} — checking my board…`;
       }
@@ -679,19 +678,19 @@ async function showGame(id) {
         text = `${o}🎯 YOUR MOVE — pick a target`;
       }
       else if (mk < 0) {
-        // jeszcze nie strzelałem (rywal otwiera partię) — nie ma czego potwierdzać
+        // I have not fired yet (they open the game) — nothing to confirm
         cls = "wait"; icon = oppHere === false ? "🚪" : '<div class="spin"></div>';
         text = oppHere === false ? `Opponent left the table — waiting for them to return` : `⏳ Waiting for their move…`;
       }
       else if (myAns === undefined) {
-        // mój strzał czeka na potwierdzenie — TYLKO rywal zna wynik
+        // my shot awaits confirmation — ONLY the opponent knows the result
         cls = "wait"; icon = oppHere === false ? "🚪" : '<div class="spin"></div>';
         text = oppHere === false
           ? `Opponent left the table — you will learn the result of your shot at ${coord(myShots[mk])} when they return`
           : `📡 Your shot at ${coord(myShots[mk])} — opponent confirming…`;
       }
       else {
-        // wynik znany, teraz czekam już tylko na JEGO ruch
+        // result known, now waiting only for THEIR move
         cls = "wait";
         const m = myAns === 1 ? `🔥 Your shot at ${coord(myShots[mk])} — HIT!` : `💧 Your shot at ${coord(myShots[mk])} — miss.`;
         text = oppHere === false ? `${m} · 🚪 opponent left the table` : `${m} · waiting for their move…`;
@@ -758,7 +757,7 @@ async function showGame(id) {
       try { await navigator.clipboard.writeText(el.value); } catch { document.execCommand("copy"); }
       $("#copy").textContent = "Copied ✓"; setTimeout(() => { const c = $("#copy"); if (c) c.textContent = "Copy link"; }, 1800);
     };
-    // „jeszcze raz" z tym samym rywalem i tym samym oknem czasowym
+    // "play again" with the same opponent and the same time window
     if ($("#again")) $("#again").onclick = () => showPlacement(null, !!table.vsBot, winKey(st.move_window));
     const claim = async (e) => { e?.preventDefault?.(); try { log("claiming timeout…");
       const r = await api("/api/move/timeout", { id }); log(`✓ the network settled the game: ${txLink(r.txid)}`, "ok"); draw().catch(() => {}); }
@@ -766,40 +765,40 @@ async function showGame(id) {
     const to = $("#to"); if (to) to.onclick = claim;
     const towin = $("#towin"); if (towin) towin.onclick = claim;
 
-    // MOJA plansza: moje statki + strzały rywala we mnie (znam własną planszę,
-    // więc od razu pokazuję trafienie/pudło; podświetlam ostatni strzał rywala)
-    // podczas odsłaniania wyniku wstrzymujemy pokazanie ŚWIEŻEGO strzału rywala
+    // MY board: my ships plus their shots at me (I know my own board, so hits and
+    // misses show at once; their last shot is highlighted)
+    // while a result is being revealed we hold back their FRESH shot
     const oppVisible = revealing ? oppShots.slice(0, -1) : oppShots;
     grid($("#me"), (i) => {
       const k = oppVisible.indexOf(i), wasShot = k !== -1;
       if (mine) {
         const isShip = mine.cells[i] === 1;
         let c = wasShot ? (isShip ? "hit" : "miss") : (isShip ? "ship" : "");
-        if (i === st.pending && meTurn && !revealing) c += " lastshot";   // rywal strzelił tu — Twoja odpowiedź
+        if (i === st.pending && meTurn && !revealing) c += " lastshot";   // they fired here — your answer
         return c;
       }
-      // widz nie zna planszy — hit/miss czyta z odpowiedzi udowodnionych w logu
+      // a spectator does not know the board — hit/miss comes from proven answers
       const ans = oppAnswers[k];
       return wasShot ? (ans === 1 ? "hit" : ans === 0 ? "miss" : "wait") : "";
     });
-    // PLANSZA RYWALA: wyłącznie MOJE strzały i JEGO odpowiedzi (nie znam jego statków)
+    // THEIR BOARD: only MY shots and THEIR answers (I do not know their ships)
     grid($("#opp"), (i) => {
       const k = myShots.indexOf(i); if (k === -1) return "";
       const ans = myAnswers[k];
-      let c = ans === 1 ? "hit" : ans === 0 ? "miss" : "wait";   // wait = czeka na odpowiedź rywala
+      let c = ans === 1 ? "hit" : ans === 0 ? "miss" : "wait";   // wait = awaiting their answer
       if (i === myShots[myShots.length - 1]) c += " lastshot";
       if (i === revCell) c += " justrevealed";
       return c;
     }, meTurn && st.phase === 1 && !spectator ? (i) => { if (!shotsMine.has(i)) fire(i); } : null);
 
-    // Nakładka „strzał w drodze" ma prawo żyć TYLKO dopóki czekam na rywala.
-    // Gdy stan gry mówi, że ruch wrócił do mnie (albo partia się skończyła),
-    // kasujemy ją bezwarunkowo — inaczej ekran potrafił zamarznąć na komunikacie.
+    // The "shot in flight" overlay may live ONLY while I am waiting for them. Once
+    // the game state says the move is back with me (or the game is over) we clear it
+    // unconditionally — otherwise the screen could freeze on that message.
     if (sending >= 0 && (meTurn || st.phase !== 1 || myShots.includes(sending))) sending = -1;
     applyPending();
 
-    // mam do potwierdzenia strzał rywala? zrób to od razu, sam
-    // …ale dopiero gdy gracz zobaczył wynik WŁASNEGO strzału
+    // their shot to confirm? do it right away, on our own
+    // …but only once the player has seen the result of their OWN shot
     if (!spectator && st.phase === 1 && meTurn && st.pending !== 100 && mine && !busy && !answering && !revealing)
       sendAnswer(st.pending, mine);
   };
@@ -808,16 +807,16 @@ async function showGame(id) {
   clearInterval(refreshTimer);
   refreshTimer = setInterval(() => {
     if (current !== id) return;
-    // zawieszona operacja nie może uwięzić ekranu na zawsze
+    // a hung operation must not trap the screen forever
     if (busy && Date.now() - busySince > 75000) { busy = false; sending = -1; log("move did not land within 75s — unlocking the board", "warn"); }
     if (!busy) draw().catch(() => {});
-  }, 5000); // siatka bezpieczeństwa, gdyby zdarzenie live nie dotarło
+  }, 5000); // safety net in case the live event never arrives
   await draw();
 }
 
 log(`connected · testnet-10 · <b>build 16:55</b>`, "ok");
 {
-  // wejście z linku „…/battleship/#<id stołu>" otwiera od razu tę partię
+  // arriving via "…/battleship/#<table id>" opens that game directly
   const deep = location.hash.slice(1).trim();
   (deep && /^[0-9a-f]{6,}$/i.test(deep) ? showGame(deep) : showTables())
     .catch((e) => { log("✗ " + e.message, "err"); showTables().catch(() => {}); });
