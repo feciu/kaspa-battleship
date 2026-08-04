@@ -188,7 +188,7 @@
   <header>
     <a class="logo" id="home" href="/battleship/" title="Back to the tables">BATTLESHIP</a>
     <span class="chip">on-chain · testnet</span>
-    <span class="chip" style="color:var(--dim);border-color:var(--line)" title="page version">v 11:10</span>
+    <span class="chip" style="color:var(--dim);border-color:var(--line)" title="page version">v 13:32</span>
     <span class="chip" style="color:var(--kas);border-color:var(--kas-dim)" id="whoami" title="Your identity in this browser — the key never leaves it">…</span>
     <input id="nick" maxlength="16" placeholder="your nickname" title="Shown to your opponent. Cosmetic only — moves are signed with your key, so nobody can play as you.">
     <button class="ghost" id="reset" style="padding:5px 10px;font-size:10px;color:var(--dim);border-color:var(--line);" title="Wipe keys and saved boards from this browser and start over">Reset</button>
@@ -230,7 +230,7 @@
 </div>
 
 <script type="module">
-import { blake2b256, hex, unhex, le8 } from "./blake2b.js?v=11:10";
+import { blake2b256, hex, unhex, le8 } from "./blake2b.js?v=13:32";
 import * as kaspa from "./sdk/kaspa/kaspa.js";
 await kaspa.default("./sdk/kaspa/kaspa_bg.wasm");
 
@@ -825,7 +825,7 @@ async function showGame(id) {
   await draw();
 }
 
-log(`connected · testnet-10 · <b>build 11:10</b>`, "ok");
+log(`connected · testnet-10 · <b>build 13:32</b>`, "ok");
 {
   // arriving via "…/battleship/#<table id>" opens that game directly
   const deep = location.hash.slice(1).trim();

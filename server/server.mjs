@@ -446,6 +446,15 @@ const routes = {
     // signal STALE and the browser simply rebuilds and signs again.
     const w = await walletUtxo();
     if (p.job.wallet.txid !== w.txid || p.job.wallet.index !== w.index) throw new Error("STALE");
+    // The same applies to the TABLE: `prepare` snapshots the game state and the
+    // covenant outpoint, and the opponent's answer can land in between — which
+    // moves the covenant on and voids the snapshot. Since v3 splits a turn into
+    // two transactions, the table advances twice per turn, so this race is easy
+    // to hit in a live human game. Detect it here instead of letting the node
+    // reject the move with an error that reads like the player cheated.
+    const cur = db().tables.find((x) => x.id === p.tableId);
+    if (!cur || cur.outpoint?.txid !== p.job.outpoint.txid || cur.outpoint?.index !== p.job.outpoint.index)
+      throw new Error("STALE");
     const r = runBuilder({ ...p.job, playerSig: b.sig });
     const txid = await submit(r.tx);
     walletTip = r.walletAfter;
@@ -570,7 +579,8 @@ routes["POST /api/table/rescue"] = async (b) => serialize(async () => {
 
 // ── HTTP ──────────────────────────────────────────────────────────────────
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css",
-  ".wasm": "application/wasm", ".json": "application/json", ".svg": "image/svg+xml" };
+  ".wasm": "application/wasm", ".json": "application/json", ".svg": "image/svg+xml",
+  ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon" };
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
