@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
+<meta name="description" content="A two-player Battleship game where the rules are enforced by Kaspa consensus, not a server. Boards are frozen as Merkle roots; every hit or miss is proven on-chain. Testnet, no wallet needed.">
 <title>Battleship on-chain — KasPlay</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -188,7 +188,7 @@
   <header>
     <a class="logo" id="home" href="/battleship/" title="Back to the tables">BATTLESHIP</a>
     <span class="chip">on-chain · testnet</span>
-    <span class="chip" style="color:var(--dim);border-color:var(--line)" title="page version">v 16:55</span>
+    <span class="chip" style="color:var(--dim);border-color:var(--line)" title="page version">v 11:10</span>
     <span class="chip" style="color:var(--kas);border-color:var(--kas-dim)" id="whoami" title="Your identity in this browser — the key never leaves it">…</span>
     <input id="nick" maxlength="16" placeholder="your nickname" title="Shown to your opponent. Cosmetic only — moves are signed with your key, so nobody can play as you.">
     <button class="ghost" id="reset" style="padding:5px 10px;font-size:10px;color:var(--dim);border-color:var(--line);" title="Wipe keys and saved boards from this browser and start over">Reset</button>
@@ -230,7 +230,7 @@
 </div>
 
 <script type="module">
-import { blake2b256, hex, unhex, le8 } from "./blake2b.js?v=16:55";
+import { blake2b256, hex, unhex, le8 } from "./blake2b.js?v=11:10";
 import * as kaspa from "./sdk/kaspa/kaspa.js";
 await kaspa.default("./sdk/kaspa/kaspa_bg.wasm");
 
@@ -708,6 +708,14 @@ async function showGame(id) {
         ${table.log.length ? txLink(table.log[table.log.length - 1].txid) : "—"}
         ${st.phase === 1 && !spectator ? ` · <a href="#" id="to">claim timeout</a>` : ""}
         · <a href="#" id="back">all tables</a></div>
+      ${st.phase === 0 && !iAmA ? `<div class="panel endcard">
+        <div class="endline">You've been invited to this table. The seat is still free.</div>
+        <p class="hint" style="margin:0 0 14px;">Place your fleet and the game starts. No wallet, no account —
+        your board is frozen on-chain and never leaves this browser.
+        ${st.move_window ? `You'll have <b style="color:var(--txt)">${st.move_window < 3600000
+          ? st.move_window / 60000 + " minutes" : st.move_window / 3600000 + " hours"}</b> for each move.` : ""}</p>
+        <div class="row"><button id="sit">▶ Sit down and play</button>
+          <button class="ghost" id="back3">All tables</button></div></div>` : ""}
       ${st.phase === 0 && iAmA ? `<div class="panel endcard">
         <div class="endline">Your table is open — waiting ${ago(table.created)}. Send this link to whoever you want to play.</div>
         <p class="hint" style="margin:0 0 12px;">They need no wallet and no account — just the link. Your fleet is already
@@ -752,6 +760,9 @@ async function showGame(id) {
       </div>`;
     $("#back").onclick = (e) => { e.preventDefault?.(); showTables(); };
     if ($("#back2")) $("#back2").onclick = () => showTables();
+    if ($("#back3")) $("#back3").onclick = () => showTables();
+    // wejście z linku zaproszenia prowadzi wprost do rozstawiania floty
+    if ($("#sit")) $("#sit").onclick = () => showPlacement(id);
     if ($("#copy")) $("#copy").onclick = async () => {
       const el = $("#invite"); el.select();
       try { await navigator.clipboard.writeText(el.value); } catch { document.execCommand("copy"); }
@@ -814,7 +825,7 @@ async function showGame(id) {
   await draw();
 }
 
-log(`connected · testnet-10 · <b>build 16:55</b>`, "ok");
+log(`connected · testnet-10 · <b>build 11:10</b>`, "ok");
 {
   // arriving via "…/battleship/#<table id>" opens that game directly
   const deep = location.hash.slice(1).trim();
